@@ -87,7 +87,7 @@ export class PDFGenerator {
     return new Date(dateString).toLocaleDateString('en-IN');
   }
 
-  private async addHeader(doc: jsPDF, companyDetails: any): Promise<void> {
+  private async addHeader(doc: jsPDF, companyDetails: { name: string; gstin?: string; address?: string; phone?: string; email?: string; bankDetails?: { accountName: string; accountNumber: string; bankName: string; ifsc: string; }; upiId?: string; }): Promise<void> {
     // Load and add the actual logo
     const logoDataUrl = await this.loadLogo();
     
@@ -178,7 +178,7 @@ export class PDFGenerator {
     doc.text(`Invoice #: ${invoiceNumber}`, 20, 90);
   }
 
-  private addClientDetails(doc: jsPDF, client: any, issueDate: string, dueDate: string): void {
+  private addClientDetails(doc: jsPDF, client: { name: string; email: string; address: string; gstin?: string }, issueDate: string, dueDate: string): void {
     // Bill To section
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
@@ -214,7 +214,7 @@ export class PDFGenerator {
     doc.text(`Due Date: ${this.formatDate(dueDate)}`, 120, 130);
   }
 
-  private addItemsTable(doc: jsPDF, items: any[]): number {
+  private addItemsTable(doc: jsPDF, items: Array<{ description: string; quantity: number; rate: number; gstPercentage: number; amount: number }>): number {
     const startY = 160;
     const tableWidth = 175; // Increased width to accommodate all columns
     const colWidths = [60, 15, 25, 15, 30, 25];
@@ -312,7 +312,7 @@ export class PDFGenerator {
     doc.rect(leftAlign - 5, startY - 5, rightAlign - leftAlign + 10, 35);
   }
 
-  private addPaymentStatus(doc: jsPDF, status: string, startY: number, paymentDetails?: any): number {
+  private addPaymentStatus(doc: jsPDF, status: string, startY: number, paymentDetails?: { paymentId?: string; method?: string; amount?: number; paidAt?: string }): number {
     let currentY = startY + 10;
     
     if (status === 'paid') {
@@ -423,7 +423,7 @@ export class PDFGenerator {
     const doc = new jsPDF();
     
     // Add header
-    await this.addHeader(doc, invoiceData.companyDetails);
+    await this.addHeader(doc, invoiceData.companyDetails || { name: 'Bytesflare Infotech' });
     
     // Add invoice title
     this.addInvoiceTitle(doc, invoiceData.invoiceNumber);
@@ -438,7 +438,7 @@ export class PDFGenerator {
     this.addTotals(doc, invoiceData.subtotal, invoiceData.gstAmount, invoiceData.total, tableEndY + 10);
     
     // Add payment status
-    const paymentStatusY = this.addPaymentStatus(doc, invoiceData.status, tableEndY + 50, invoiceData.paymentDetails);
+    this.addPaymentStatus(doc, invoiceData.status, tableEndY + 50, invoiceData.paymentDetails);
     
     // Add footer
     this.addFooter(doc, invoiceData.notes, invoiceData.termsAndConditions);
@@ -447,7 +447,7 @@ export class PDFGenerator {
     return doc.output('blob');
   }
 
-  public async generateInvoiceFromHTML(elementId: string, filename?: string): Promise<Blob> {
+  public async generateInvoiceFromHTML(elementId: string): Promise<Blob> {
     const element = document.getElementById(elementId);
     if (!element) {
       throw new Error(`Element with id ${elementId} not found`);

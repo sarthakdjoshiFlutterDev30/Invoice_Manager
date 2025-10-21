@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Invoice from '@/models/Invoice';
-import Client from '@/models/Client';
-import User from '@/models/User';
-import { getCurrentUserFromHeaders } from '@/lib/auth';
 import { pdfGenerator } from '@/lib/pdfGenerator';
 
 export async function GET(
@@ -29,8 +26,18 @@ export async function GET(
       );
     }
 
-    // Get user's company details
-    const userDetails = await User.findById(defaultUserId).select('companyDetails');
+    // Get user's company details (using default company details for now)
+    const userDetails = {
+      companyDetails: {
+        name: 'Bytesflare Infotech',
+        address: 'Your Company Address',
+        phone: '+91 1234567890',
+        email: 'info@bytesflare.com',
+        gstin: 'GSTIN123456789',
+        logo: '',
+        signature: ''
+      }
+    };
     
     const invoiceData = {
       invoiceNumber: invoice.invoiceNumber,

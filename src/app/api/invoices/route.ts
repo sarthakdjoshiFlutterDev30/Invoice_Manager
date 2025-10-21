@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import mongoose from 'mongoose';
 import Invoice from '@/models/Invoice';
-import Client from '@/models/Client';
-import { getCurrentUserFromHeaders } from '@/lib/auth';
 
 // GET all invoices
 export async function GET(req: NextRequest) {
@@ -33,7 +31,7 @@ export async function GET(req: NextRequest) {
     const endDate = searchParams.get('endDate');
     
     // Build query
-    const query: any = { createdBy: defaultUserId };
+    const query: Record<string, string | { $gte: Date; $lte: Date }> = { createdBy: defaultUserId };
     
     if (status) query.status = status;
     if (clientId) query.client = clientId;

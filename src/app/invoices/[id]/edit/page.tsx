@@ -43,7 +43,19 @@ export default function EditInvoicePage() {
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(false);
-  const [invoice, setInvoice] = useState<any>(null);
+  const [invoice, setInvoice] = useState<{
+    _id: string;
+    invoiceNumber: string;
+    client: string;
+    issueDate: string;
+    dueDate: string;
+    items: Array<{ description: string; quantity: number; rate: number; gstPercentage: number; amount: number }>;
+    subtotal: number;
+    gstAmount: number;
+    total: number;
+    notes: string;
+    termsAndConditions: string;
+  } | null>(null);
 
   const { register, control, handleSubmit, watch, setValue, formState: { errors } } = useForm<InvoiceForm>({
     defaultValues: {

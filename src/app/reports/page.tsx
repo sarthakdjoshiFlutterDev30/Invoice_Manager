@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { 
   Download, 
-  Calendar,
   DollarSign,
   TrendingUp,
   FileText,
@@ -76,7 +75,7 @@ export default function ReportsPage() {
     }
   };
 
-  const processReportData = (invoices: any[]) => {
+  const processReportData = (invoices: Array<{ status: string; total: number; issueDate: string; paymentDetails?: { paidAt: string } }>) => {
     // Monthly Revenue Data
     const monthlyData = generateMonthlyData(invoices);
     
@@ -89,7 +88,7 @@ export default function ReportsPage() {
     ];
     
     // Top Clients Data
-    const clientRevenue = invoices.reduce((acc: any, invoice: any) => {
+    const clientRevenue = invoices.reduce((acc: Record<string, { revenue: number; invoices: number }>, invoice: { client?: { name: string }; status: string; total: number }) => {
       const clientName = invoice.client?.name || 'Unknown';
       if (!acc[clientName]) {
         acc[clientName] = { revenue: 0, invoices: 0 };
@@ -102,7 +101,7 @@ export default function ReportsPage() {
     }, {});
     
     const topClients = Object.entries(clientRevenue)
-      .map(([client, data]: [string, any]) => ({
+      .map(([client, data]: [string, { revenue: number; invoices: number }]) => ({
         client,
         revenue: data.revenue,
         invoices: data.invoices,
@@ -121,38 +120,38 @@ export default function ReportsPage() {
     });
   };
 
-  const generateMonthlyData = (invoices: any[]) => {
+  const generateMonthlyData = (invoices: Array<{ issueDate: string; status: string; total: number }>) => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const currentMonth = new Date().getMonth();
     
     return months.slice(Math.max(0, currentMonth - 5), currentMonth + 1).map((month, index) => {
       const monthIndex = (currentMonth - 5 + index + 12) % 12;
-      const monthInvoices = invoices.filter((invoice: any) => {
+      const monthInvoices = invoices.filter((invoice: { issueDate: string; status: string }) => {
         const invoiceDate = new Date(invoice.issueDate);
         return invoiceDate.getMonth() === monthIndex && invoice.status === 'paid';
       });
       
       return {
         month,
-        revenue: monthInvoices.reduce((sum: number, invoice: any) => sum + invoice.total, 0),
+        revenue: monthInvoices.reduce((sum: number, invoice: { total: number }) => sum + invoice.total, 0),
         invoices: monthInvoices.length,
       };
     });
   };
 
-  const generateYearlyData = (invoices: any[]) => {
+  const generateYearlyData = (invoices: Array<{ issueDate: string; status: string; total: number }>) => {
     const currentYear = new Date().getFullYear();
     const years = [currentYear - 2, currentYear - 1, currentYear];
     
     return years.map(year => {
-      const yearInvoices = invoices.filter((invoice: any) => {
+      const yearInvoices = invoices.filter((invoice: { issueDate: string; status: string }) => {
         const invoiceDate = new Date(invoice.issueDate);
         return invoiceDate.getFullYear() === year && invoice.status === 'paid';
       });
       
       return {
         year: year.toString(),
-        revenue: yearInvoices.reduce((sum: number, invoice: any) => sum + invoice.total, 0),
+        revenue: yearInvoices.reduce((sum: number, invoice: { total: number }) => sum + invoice.total, 0),
       };
     });
   };
@@ -319,25 +318,8 @@ export default function ReportsPage() {
       {/* Yearly Growth Chart */}
       <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Yearly Growth Trend</h3>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={reportData.yearlyGrowth}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" />
-              <YAxis tickFormatter={(value) => `₹${(value / 100000).toFixed(0)}L`} />
-              <Tooltip 
-                formatter={(value: number) => [formatCurrency(value), 'Revenue']}
-                labelStyle={{ color: '#374151' }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="revenue" 
-                stroke="#2563eb" 
-                strokeWidth={3}
-                dot={{ fill: '#2563eb', strokeWidth: 2, r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="h-80 flex items-center justify-center text-gray-500">
+          <p>Chart visualization removed</p>
         </div>
       </div>
     </div>

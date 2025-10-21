@@ -8,7 +8,6 @@ import {
   CheckCircle, 
   Clock, 
   TrendingUp,
-  Users,
   Plus,
   Eye
 } from 'lucide-react';
@@ -39,7 +38,14 @@ export default function Dashboard() {
     growthRate: 0,
   });
 
-  const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
+  const [recentInvoices, setRecentInvoices] = useState<Array<{
+    _id: string;
+    invoiceNumber: string;
+    client: { name: string };
+    total: number;
+    status: string;
+    issueDate: string;
+  }>>([]);
   const [loading, setLoading] = useState(true);
 
   // Fetch dashboard data
@@ -59,27 +65,27 @@ export default function Dashboard() {
       const clientsResponse = await fetch('/api/clients');
       const clientsData = await clientsResponse.json();
       
-      if (invoicesData.success && clientsData.success) {
+      if (invoicesData.success && clientsData.success) {  
         const invoices = invoicesData.data || [];
         const clients = clientsData.data || [];
         
         // Calculate stats
-        const totalRevenue = invoices.reduce((sum: number, invoice: any) => 
+        const totalRevenue = invoices.reduce((sum: number, invoice: { status: string; total: number }) => 
           invoice.status === 'paid' ? sum + invoice.total : sum, 0
         );
         
-        const pendingAmount = invoices.reduce((sum: number, invoice: any) => 
+        const pendingAmount = invoices.reduce((sum: number, invoice: { status: string; total: number }) => 
           invoice.status === 'unpaid' ? sum + invoice.total : sum, 0
         );
         
-        const paidInvoices = invoices.filter((invoice: any) => invoice.status === 'paid').length;
-        const unpaidInvoices = invoices.filter((invoice: any) => invoice.status === 'unpaid').length;
+        const paidInvoices = invoices.filter((invoice: { status: string }) => invoice.status === 'paid').length;
+        const unpaidInvoices = invoices.filter((invoice: { status: string }) => invoice.status === 'unpaid').length;
         
         // Calculate monthly revenue (current month) - based on payment date
         const currentMonth = new Date().getMonth();
         const currentYear = new Date().getFullYear();
         const monthlyRevenue = invoices
-          .filter((invoice: any) => {
+          .filter((invoice: { paymentDetails?: { paidAt: string }; issueDate: string; status: string }) => {
             // Use payment date if available, otherwise fall back to invoice date
             const paymentDate = invoice.paymentDetails?.paidAt 
               ? new Date(invoice.paymentDetails.paidAt)
@@ -89,12 +95,12 @@ export default function Dashboard() {
                    paymentDate.getFullYear() === currentYear &&
                    invoice.status === 'paid';
           })
-          .reduce((sum: number, invoice: any) => sum + invoice.total, 0);
+          .reduce((sum: number, invoice: { total: number }) => sum + invoice.total, 0);
         
         // Calculate growth rate (simplified)
         const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
         const lastMonthRevenue = invoices
-          .filter((invoice: any) => {
+          .filter((invoice: { paymentDetails?: { paidAt: string }; issueDate: string; status: string }) => {
             // Use payment date if available, otherwise fall back to invoice date
             const paymentDate = invoice.paymentDetails?.paidAt 
               ? new Date(invoice.paymentDetails.paidAt)
@@ -104,7 +110,7 @@ export default function Dashboard() {
                    paymentDate.getFullYear() === currentYear &&
                    invoice.status === 'paid';
           })
-          .reduce((sum: number, invoice: any) => sum + invoice.total, 0);
+          .reduce((sum: number, invoice: { total: number }) => sum + invoice.total, 0);
         
         const growthRate = lastMonthRevenue > 0 
           ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
@@ -124,7 +130,7 @@ export default function Dashboard() {
         
         // Get recent invoices
         const recent = invoices
-          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+          .sort((a: { createdAt: string }, b: { createdAt: string }) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 5);
         setRecentInvoices(recent);
       }
@@ -177,7 +183,7 @@ export default function Dashboard() {
           <Logo size="lg" showText={true} />
           <div>
             <h1 className="text-3xl font-bold text-gray-900 font-poppins">Dashboard</h1>
-            <p className="text-gray-600 mt-1">Welcome back! Here's what's happening with your business.</p>
+            <p className="text-gray-600 mt-1">Welcome back! Here&apos;s what&apos;s happening with your business.</p>
           </div>
         </div>
         <Link

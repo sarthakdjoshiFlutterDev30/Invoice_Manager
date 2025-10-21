@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Client from '@/models/Client';
-import { getCurrentUserFromHeaders } from '@/lib/auth';
 
 // GET single client
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
@@ -14,8 +13,9 @@ export async function GET(
     // Use default user ID for direct access
     const defaultUserId = '68f601d13b9fdf3a0dce46a7';
 
+    const { id } = await params;
     const client = await Client.findOne({
-      _id: params.id,
+      _id: id,
       createdBy: defaultUserId,
     });
 
@@ -42,7 +42,7 @@ export async function GET(
 // PATCH update client
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
@@ -51,9 +51,10 @@ export async function PATCH(
     const defaultUserId = '68f601d13b9fdf3a0dce46a7';
     
     const data = await req.json();
+    const { id } = await params;
 
     const client = await Client.findOneAndUpdate(
-      { _id: params.id, createdBy: defaultUserId },
+      { _id: id, createdBy: defaultUserId },
       data,
       { new: true }
     );
@@ -80,7 +81,7 @@ export async function PATCH(
 // DELETE client
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
@@ -88,8 +89,9 @@ export async function DELETE(
     // Use default user ID for direct access
     const defaultUserId = '68f601d13b9fdf3a0dce46a7';
     
+    const { id } = await params;
     const client = await Client.findOneAndDelete({
-      _id: params.id,
+      _id: id,
       createdBy: defaultUserId
     });
     

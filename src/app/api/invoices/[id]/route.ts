@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import mongoose from 'mongoose';
 import Invoice from '@/models/Invoice';
-import Client from '@/models/Client';
-import { getCurrentUserFromHeaders } from '@/lib/auth';
 
 // GET single invoice
 export async function GET(

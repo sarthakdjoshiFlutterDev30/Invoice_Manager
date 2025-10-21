@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
-import { Save, ArrowLeft, User, Mail, Phone, MapPin, Building2 } from 'lucide-react';
+import { Save, ArrowLeft, User, Phone, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface ClientForm {

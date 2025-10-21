@@ -6,9 +6,7 @@ import {
   ArrowLeft, 
   Download, 
   Printer, 
-  CreditCard, 
   CheckCircle,
-  Calendar,
   User,
   Mail,
   MapPin,
@@ -173,7 +171,7 @@ export default function InvoiceDetailPage() {
       <div className="text-center py-12">
         <FileText className="mx-auto h-12 w-12 text-gray-400" />
         <h3 className="mt-2 text-sm font-medium text-gray-900">Invoice not found</h3>
-        <p className="mt-1 text-sm text-gray-500">The invoice you're looking for doesn't exist.</p>
+        <p className="mt-1 text-sm text-gray-500">The invoice you&apos;re looking for doesn&apos;t exist.</p>
         <div className="mt-6">
           <Link
             href="/invoices"

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Client from '@/models/Client';
-import { getCurrentUserFromHeaders } from '@/lib/auth';
 
 // GET all clients
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
     await connectDB();
     

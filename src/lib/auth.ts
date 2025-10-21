@@ -5,14 +5,14 @@ import { NextRequest, NextResponse } from 'next/server';
 const JWT_SECRET = process.env.JWT_SECRET || 'bytesflare-invoice-manager-secret-key-2024';
 const JWT_EXPIRY = '7d';
 
-export const signToken = (payload: any) => {
+export const signToken = (payload: Record<string, string | number>) => {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 };
 
 export const verifyToken = (token: string) => {
   try {
     return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
+  } catch {
     return null;
   }
 };

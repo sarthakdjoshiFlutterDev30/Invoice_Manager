@@ -5,12 +5,8 @@ import { useForm } from 'react-hook-form';
 import { 
   Save, 
   Building2, 
-  Mail, 
-  Phone, 
-  MapPin, 
   CreditCard,
   Upload,
-  User,
   Settings as SettingsIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -34,7 +30,7 @@ interface CompanyDetails {
 }
 
 export default function SettingsPage() {
-  const [loading, setLoading] = useState(false);
+  const [loading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const { register, handleSubmit, formState: { errors }, setValue } = useForm<CompanyDetails>({

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm, useFieldArray } from 'react-hook-form';
-import { Plus, Trash2, Save, Eye, Download, CreditCard, Printer } from 'lucide-react';
+import { Plus, Trash2, Save, Eye, Download, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { pdfGenerator } from '@/lib/pdfGenerator';
 

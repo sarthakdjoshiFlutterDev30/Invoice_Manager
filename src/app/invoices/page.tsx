@@ -5,13 +5,10 @@ import Link from 'next/link';
 import { 
   Plus, 
   Search, 
-  Filter, 
   Eye, 
   Edit, 
   Trash2, 
   Download, 
-  CreditCard,
-  Calendar,
   DollarSign,
   CheckCircle,
   Clock,
