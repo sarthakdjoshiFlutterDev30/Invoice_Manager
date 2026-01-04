@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Invoice from '@/models/Invoice';
 import { pdfGenerator } from '@/lib/pdfGenerator';
+import fs from 'fs';
+import path from 'path';
 
 export async function GET(
   req: NextRequest,
@@ -27,6 +29,15 @@ export async function GET(
     }
 
     // Get user's company details (using default company details for now)
+    let logoDataURL = '';
+    try {
+      const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+      if (fs.existsSync(logoPath)) {
+        const file = fs.readFileSync(logoPath);
+        logoDataURL = `data:image/png;base64,${file.toString('base64')}`;
+      }
+    } catch {}
+    
     const userDetails = {
       companyDetails: {
         name: 'Bytesflare Infotech',
@@ -34,7 +45,7 @@ export async function GET(
         phone: '+91 1234567890',
         email: 'info@bytesflare.com',
         gstin: 'GSTIN123456789',
-        logo: '',
+        logo: logoDataURL,
         signature: ''
       }
     };

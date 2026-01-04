@@ -9,10 +9,10 @@ import {
   Clock, 
   TrendingUp,
   Plus,
-  Eye
+  Eye,
+  RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import Logo from '@/components/Logo';
 
 interface DashboardStats {
   totalRevenue: number;
@@ -53,16 +53,30 @@ export default function Dashboard() {
     fetchDashboardData();
   }, []);
 
+  // Auto-refresh when tab gains focus or becomes visible
+  useEffect(() => {
+    const onFocus = () => fetchDashboardData();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchDashboardData();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
       
       // Fetch invoices
-      const invoicesResponse = await fetch('/api/invoices');
+      const invoicesResponse = await fetch('/api/invoices', { cache: 'no-store' });
       const invoicesData = await invoicesResponse.json();
       
       // Fetch clients
-      const clientsResponse = await fetch('/api/clients');
+      const clientsResponse = await fetch('/api/clients', { cache: 'no-store' });
       const clientsData = await clientsResponse.json();
       
       if (invoicesData.success && clientsData.success) {  
@@ -179,20 +193,27 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
-          <Logo size="lg" showText={true} />
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 font-poppins">Dashboard</h1>
-            <p className="text-gray-600 mt-1">Welcome back! Here&apos;s what&apos;s happening with your business.</p>
-          </div>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900 font-poppins">Dashboard</h1>
+          <p className="text-gray-600 mt-1">Welcome back! Here&apos;s what&apos;s happening with your business.</p>
         </div>
-        <Link
-          href="/invoices/create"
-          className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Create Invoice</span>
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchDashboardData}
+            className="flex items-center space-x-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-5 h-5" />
+            <span>Refresh</span>
+          </button>
+          <Link
+            href="/invoices/create"
+            className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Create Invoice</span>
+          </Link>
+        </div>
       </div>
       
       {/* Stats Cards */}

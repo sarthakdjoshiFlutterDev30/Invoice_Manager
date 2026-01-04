@@ -13,7 +13,8 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  FileText
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -45,13 +46,26 @@ export default function InvoicesPage() {
   }, []);
 
   useEffect(() => {
+    const onFocus = () => fetchInvoices();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchInvoices();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
     filterInvoices();
   }, [invoices, searchTerm, statusFilter, dateFilter]);
 
   const fetchInvoices = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/invoices');
+      const response = await fetch('/api/invoices', { cache: 'no-store' });
       const data = await response.json();
       
       if (data.success) {
@@ -183,29 +197,16 @@ export default function InvoicesPage() {
   };
 
   const handleDownloadPDF = async (invoiceId: string, invoiceNumber: string) => {
-    try {
-      const response = await fetch(`/api/invoices/${invoiceId}/pdf`);
-      
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `Invoice-${invoiceNumber}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-        toast.success('PDF downloaded successfully!');
-      } else {
-        toast.error('Failed to download PDF');
-      }
-    } catch (error) {
-      console.error('Error downloading PDF:', error);
-      toast.error('Something went wrong');
-    }
+    const response = await fetch(`/api/invoices/${invoiceId}/pdf`);
+    const blob = await response.blob();
+  
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Invoice-${invoiceNumber}.pdf`;
+    link.click();
   };
-
+  
 
   if (loading) {
     return (
@@ -223,13 +224,23 @@ export default function InvoicesPage() {
           <h1 className="text-3xl font-bold text-gray-900 font-poppins">Invoices</h1>
           <p className="text-gray-600 mt-1">Manage your invoices and payments</p>
         </div>
-        <Link
-          href="/invoices/create"
-          className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Create Invoice</span>
-        </Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={fetchInvoices}
+            className="flex items-center space-x-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-5 h-5" />
+            <span>Refresh</span>
+          </button>
+          <Link
+            href="/invoices/create"
+            className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Create Invoice</span>
+          </Link>
+        </div>
       </div>
 
       {/* Stats Cards */}

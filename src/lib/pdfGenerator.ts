@@ -1,512 +1,281 @@
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+
+interface InvoiceItem {
+  description: string;
+  quantity: number;
+  rate: number;
+  gstPercentage: number;
+}
 
 interface InvoiceData {
   invoiceNumber: string;
-  client: {
-    name: string;
-    email: string;
-    address: string;
-    gstin?: string;
-  };
+  client: ClientData;
   issueDate: string;
   dueDate: string;
-  items: Array<{
-    description: string;
-    quantity: number;
-    rate: number;
-    gstPercentage: number;
-    amount: number;
-  }>;
-  subtotal: number;
-  gstAmount: number;
-  total: number;
-  status: string;
-  paymentDetails?: {
-    paymentId?: string;
-    method?: string;
-    amount?: number;
-    paidAt?: string;
-  };
+  items: InvoiceItem[];
+  status: 'paid' | 'unpaid';
   notes?: string;
   termsAndConditions?: string;
-  companyDetails?: {
-    name: string;
-    gstin?: string;
-    address?: string;
-    phone?: string;
-    email?: string;
-    bankDetails?: {
-      accountName: string;
-      accountNumber: string;
-      bankName: string;
-      ifsc: string;
-    };
-    upiId?: string;
-  };
+  companyDetails?: CompanyDetails;
+}
+
+interface ClientData {
+  name: string;
+  email: string;
+  address: string;
+  gstin?: string;
+}
+
+interface CompanyDetails {
+  name: string;
+  gstin?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  logo?: string;
 }
 
 export class PDFGenerator {
-  private logoDataUrl: string | null = null;
 
-  private async loadLogo(): Promise<string> {
-    if (this.logoDataUrl) {
-      return this.logoDataUrl;
-    }
-
-    try {
-      // Use absolute URL for server-side requests
-      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-      const response = await fetch(`${baseUrl}/logo.png`);
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const base64 = buffer.toString('base64');
-      const mimeType = response.headers.get('content-type') || 'image/png';
-      this.logoDataUrl = `data:${mimeType};base64,${base64}`;
-      return this.logoDataUrl;
-    } catch (error) {
-      console.error('Error loading logo:', error);
-      return '';
-    }
+  // 🔒 SAFETY: Always convert to number
+  private toNumber(value: unknown): number {
+    const n = Number(value);
+    return isNaN(n) ? 0 : n;
   }
 
-  private formatCurrency(amount: number): string {
-    // Handle very small amounts properly
-    if (amount < 1) {
-      return `₹${amount.toFixed(2)}`;
-    }
+  private formatCurrency(amount: unknown): string {
+    const value = this.toNumber(amount);
     return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
-    }).format(amount);
+    }).format(value);
   }
 
-  private formatDate(dateString: string): string {
-    return new Date(dateString).toLocaleDateString('en-IN');
+  private formatDate(date: string): string {
+    return new Date(date).toLocaleDateString('en-IN');
   }
 
-  private async addHeader(doc: jsPDF, companyDetails: { name: string; gstin?: string; address?: string; phone?: string; email?: string; bankDetails?: { accountName: string; accountNumber: string; bankName: string; ifsc: string; }; upiId?: string; }): Promise<void> {
-    // Load and add the actual logo
-    const logoDataUrl = await this.loadLogo();
-    
-    if (logoDataUrl) {
-      try {
-        // Add the logo image
-        doc.addImage(logoDataUrl, 'PNG', 20, 20, 35, 35);
-      } catch (error) {
-        console.error('Error adding logo to PDF:', error);
-        // Fallback to text-based logo
-        this.addFallbackLogo(doc);
-      }
-    } else {
-      // Fallback to text-based logo
-      this.addFallbackLogo(doc);
-    }
-
-    // Company Name
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(20);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Bytes Flare', 65, 30);
-    
-    // INFOTECH subtitle
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text('INFOTECH', 65, 38);
-
-    // Company Details
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    let yPos = 50;
-    if (companyDetails?.gstin) {
-      doc.text(`GSTIN: ${companyDetails.gstin}`, 65, yPos);
-      yPos += 5;
-    }
-    if (companyDetails?.address) {
-      doc.text(companyDetails.address, 65, yPos);
-      yPos += 5;
-    }
-    if (companyDetails?.phone) {
-      doc.text(`Phone: ${companyDetails.phone}`, 65, yPos);
-      yPos += 5;
-    }
-    if (companyDetails?.email) {
-      doc.text(`Email: ${companyDetails.email}`, 65, yPos);
-    }
-  }
-
-  private addFallbackLogo(doc: jsPDF): void {
-    // Bytes Flare Logo (fallback)
-    // Dark blue background
-    doc.setFillColor(30, 58, 138); // Dark blue
-    doc.rect(20, 20, 35, 35, 'F');
-    
-    // White border
-    doc.setDrawColor(255, 255, 255);
-    doc.setLineWidth(2);
-    doc.rect(20, 20, 35, 35);
-    
-    // Inner orange flame (using circles instead of ellipses)
-    doc.setFillColor(249, 115, 22); // Orange
-    doc.circle(32, 32, 4, 'F');
-    
-    // Outer cyan flame
-    doc.setFillColor(34, 211, 238); // Cyan
-    doc.circle(34, 32, 3, 'F');
-    
-    // Digital pixels
-    doc.setFillColor(249, 115, 22); // Orange
-    doc.rect(28, 28, 1, 1, 'F');
-    doc.rect(29, 29, 0.5, 0.5, 'F');
-    doc.rect(27, 30, 0.5, 0.5, 'F');
-    
-    doc.setFillColor(34, 211, 238); // Cyan
-    doc.rect(29, 28, 0.5, 0.5, 'F');
-    doc.rect(28, 29, 0.5, 0.5, 'F');
-  }
-
-  private addInvoiceTitle(doc: jsPDF, invoiceNumber: string): void {
-    doc.setFontSize(20);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 0);
-    doc.text('INVOICE', 20, 80);
-    
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Invoice #: ${invoiceNumber}`, 20, 90);
-  }
-
-  private addClientDetails(doc: jsPDF, client: { name: string; email: string; address: string; gstin?: string }, issueDate: string, dueDate: string): void {
-    // Bill To section
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Bill To:', 20, 110);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    let yPos = 120;
-    doc.text(client.name, 20, yPos);
-    yPos += 5;
-    doc.text(client.email, 20, yPos);
-    yPos += 5;
-    
-    // Handle long addresses by splitting them
-    const addressLines = doc.splitTextToSize(client.address, 80);
-    addressLines.forEach((line: string) => {
-      doc.text(line, 20, yPos);
-      yPos += 5;
-    });
-    
-    if (client.gstin) {
-      yPos += 2;
-      doc.text(`GSTIN: ${client.gstin}`, 20, yPos);
-    }
-
-    // Invoice dates - better positioned and aligned
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Invoice Details:', 120, 110);
-    
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Issue Date: ${this.formatDate(issueDate)}`, 120, 120);
-    doc.text(`Due Date: ${this.formatDate(dueDate)}`, 120, 130);
-  }
-
-  private addItemsTable(doc: jsPDF, items: Array<{ description: string; quantity: number; rate: number; gstPercentage: number; amount: number }>): number {
-    const startY = 160;
-    const tableWidth = 175; // Increased width to accommodate all columns
-    const colWidths = [60, 15, 25, 15, 30, 25];
-    const colPositions = [20, 80, 95, 120, 135, 170];
-
-    // Table header with better styling
-    doc.setFillColor(240, 240, 240);
-    doc.rect(20, startY, tableWidth, 15, 'F');
-    
-    // Add border to header
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.5);
-    doc.rect(20, startY, tableWidth, 15);
-    
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 0, 0);
-    
-    const headers = ['Description', 'Qty', 'Rate (₹)', 'GST %', 'Amount (₹)', 'Total (₹)'];
-    headers.forEach((header, index) => {
-      doc.text(header, colPositions[index], startY + 10);
-    });
-
-    // Table rows
-    let currentY = startY + 15;
-    items.forEach((item, index) => {
-      if (currentY > 250) {
-        // Add new page if needed
-        doc.addPage();
-        currentY = 20;
-      }
-
-      // Add border to each row
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(0.3);
-      doc.rect(20, currentY, tableWidth, 15);
-
-      // Alternate row colors
-      if (index % 2 === 0) {
-        doc.setFillColor(250, 250, 250);
-        doc.rect(20, currentY, tableWidth, 15, 'F');
-      }
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      
-      // Wrap text for description
-      const description = doc.splitTextToSize(item.description, colWidths[0] - 5);
-      doc.text(description, colPositions[0], currentY + 10);
-      
-      doc.text(item.quantity.toString(), colPositions[1], currentY + 10);
-      doc.text(this.formatCurrency(item.rate), colPositions[2], currentY + 10);
-      doc.text(`${item.gstPercentage}%`, colPositions[3], currentY + 10);
-      doc.text(this.formatCurrency(item.amount), colPositions[4], currentY + 10);
-      
-      // Calculate total with GST
-      const itemTotal = item.amount + (item.amount * item.gstPercentage / 100);
-      doc.text(this.formatCurrency(itemTotal), colPositions[5], currentY + 10);
-      
-      currentY += 15;
-    });
-
-    return currentY;
-  }
-
-  private addTotals(doc: jsPDF, subtotal: number, gstAmount: number, total: number, startY: number): void {
-    const rightAlign = 195;
-    const leftAlign = 145;
-    
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    
-    // Subtotal
-    doc.text('Subtotal:', leftAlign, startY);
-    doc.text(this.formatCurrency(subtotal), rightAlign, startY);
-    
-    // GST
-    doc.text('GST:', leftAlign, startY + 10);
-    doc.text(this.formatCurrency(gstAmount), rightAlign, startY + 10);
-    
-    // Draw line above total
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.5);
-    doc.line(leftAlign, startY + 18, rightAlign, startY + 18);
-    
-    // Total
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Total:', leftAlign, startY + 25);
-    doc.text(this.formatCurrency(total), rightAlign, startY + 25);
-    
-    // Draw box around totals
-    doc.setDrawColor(0, 0, 0);
-    doc.setLineWidth(0.5);
-    doc.rect(leftAlign - 5, startY - 5, rightAlign - leftAlign + 10, 35);
-  }
-
-  private addPaymentStatus(doc: jsPDF, status: string, startY: number, paymentDetails?: { paymentId?: string; method?: string; amount?: number; paidAt?: string }): number {
-    let currentY = startY + 10;
-    
-    if (status === 'paid') {
-      // Paid status with green background
-      doc.setFillColor(240, 253, 244); // Light green
-      doc.rect(20, currentY, 170, 30, 'F');
-      
-      // Green border
-      doc.setDrawColor(34, 197, 94); // Green
-      doc.setLineWidth(1);
-      doc.rect(20, currentY, 170, 30);
-      
-      // Payment status text
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(22, 163, 74); // Dark green
-      doc.text('✓ PAYMENT RECEIVED', 25, currentY + 8);
-      
-      // Payment details
-      if (paymentDetails) {
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(0, 0, 0);
-        
-        let detailY = currentY + 15;
-        if (paymentDetails.paymentId) {
-          doc.text(`Payment ID: ${paymentDetails.paymentId}`, 25, detailY);
-          detailY += 5;
-        }
-        if (paymentDetails.method) {
-          doc.text(`Method: ${paymentDetails.method}`, 25, detailY);
-          detailY += 5;
-        }
-        if (paymentDetails.amount) {
-          doc.text(`Amount: ${this.formatCurrency(paymentDetails.amount)}`, 25, detailY);
-          detailY += 5;
-        }
-        if (paymentDetails.paidAt) {
-          doc.text(`Paid On: ${this.formatDate(paymentDetails.paidAt)}`, 25, detailY);
-        }
-      }
-      
-      currentY += 35;
-    } else {
-      // Unpaid status with red background
-      doc.setFillColor(254, 242, 242); // Light red
-      doc.rect(20, currentY, 170, 20, 'F');
-      
-      // Red border
-      doc.setDrawColor(239, 68, 68); // Red
-      doc.setLineWidth(1);
-      doc.rect(20, currentY, 170, 20);
-      
-      // Unpaid status text
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(220, 38, 38); // Dark red
-      doc.text('⚠ PAYMENT PENDING', 25, currentY + 8);
-      
-      // Due date reminder
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(0, 0, 0);
-      doc.text('Please make payment as per terms', 25, currentY + 15);
-      
-      currentY += 25;
-    }
-    
-    return currentY;
-  }
-
-  private addFooter(doc: jsPDF, notes?: string, termsAndConditions?: string): void {
-    const pageHeight = doc.internal.pageSize.height;
-    let yPos = pageHeight - 60;
-
-    if (notes) {
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Notes:', 20, yPos);
-      yPos += 10;
-      
-      doc.setFont('helvetica', 'normal');
-      const noteLines = doc.splitTextToSize(notes, 170);
-      doc.text(noteLines, 20, yPos);
-      yPos += noteLines.length * 5 + 10;
-    }
-
-    if (termsAndConditions) {
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Terms & Conditions:', 20, yPos);
-      yPos += 10;
-      
-      doc.setFont('helvetica', 'normal');
-      const termsLines = doc.splitTextToSize(termsAndConditions, 170);
-      doc.text(termsLines, 20, yPos);
-    }
-
-    // Footer text
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(128, 128, 128);
-    doc.text('This is a computer-generated invoice by Bytes Flare Infotech.', 20, pageHeight - 20);
-  }
-
-  public async generateInvoicePDF(invoiceData: InvoiceData): Promise<Blob> {
-    console.log('PDF Generation - Invoice Data:', invoiceData);
-    const doc = new jsPDF();
-    
-    // Add header
-    await this.addHeader(doc, invoiceData.companyDetails || { name: 'Bytesflare Infotech' });
-    
-    // Add invoice title
-    this.addInvoiceTitle(doc, invoiceData.invoiceNumber);
-    
-    // Add client details
-    this.addClientDetails(doc, invoiceData.client, invoiceData.issueDate, invoiceData.dueDate);
-    
-    // Add items table
-    const tableEndY = this.addItemsTable(doc, invoiceData.items);
-    
-    // Add totals
-    this.addTotals(doc, invoiceData.subtotal, invoiceData.gstAmount, invoiceData.total, tableEndY + 10);
-    
-    // Add payment status
-    this.addPaymentStatus(doc, invoiceData.status, tableEndY + 50, invoiceData.paymentDetails);
-    
-    // Add footer
-    this.addFooter(doc, invoiceData.notes, invoiceData.termsAndConditions);
-    
-    // Return as blob
-    return doc.output('blob');
-  }
-
-  public async generateInvoiceFromHTML(elementId: string): Promise<Blob> {
-    const element = document.getElementById(elementId);
-    if (!element) {
-      throw new Error(`Element with id ${elementId} not found`);
-    }
-
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: true,
-    });
-
-    const imgData = canvas.toDataURL('image/png');
-    const doc = new jsPDF('p', 'mm', 'a4');
-    
-    const imgWidth = 210;
-    const pageHeight = 295;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    let heightLeft = imgHeight;
-
-    let position = 0;
-
-    doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-
-    while (heightLeft >= 0) {
-      position = heightLeft - imgHeight;
-      doc.addPage();
-      doc.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-
-    return doc.output('blob');
-  }
-
-  public downloadPDF(blob: Blob, filename: string): void {
+  public downloadPDF(blob: Blob, fileName: string) {
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
     URL.revokeObjectURL(url);
+    document.body.removeChild(a);
   }
 
-  public printPDF(blob: Blob): void {
+  public printPDF(blob: Blob) {
     const url = URL.createObjectURL(blob);
     const iframe = document.createElement('iframe');
     iframe.style.display = 'none';
     iframe.src = url;
     document.body.appendChild(iframe);
-    
     iframe.onload = () => {
+      iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-        URL.revokeObjectURL(url);
-      }, 1000);
+      URL.revokeObjectURL(url);
+      document.body.removeChild(iframe);
     };
+  }
+
+  /* ---------------- HEADER ---------------- */
+  private addHeader(doc: jsPDF, company?: CompanyDetails) {
+    if (company?.logo) {
+      try {
+        doc.addImage(company.logo, 'PNG', 20, 15, 35, 35);
+      } catch {
+        // ignore image errors and continue with text header
+      }
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text(company?.name || 'Bytes Flare', 65, 30);
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('INFOTECH', 65, 38);
+
+    let y = 50;
+    if (company?.gstin) doc.text(`GSTIN: ${company.gstin}`, 65, y += 5);
+    if (company?.address) doc.text(company.address, 65, y += 5);
+    if (company?.phone) doc.text(`Phone: ${company.phone}`, 65, y += 5);
+    if (company?.email) doc.text(`Email: ${company.email}`, 65, y += 5);
+  }
+
+  /* ---------------- INVOICE TITLE ---------------- */
+  private addInvoiceTitle(doc: jsPDF, invoiceNo: string) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('INVOICE', 20, 80);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(12);
+    doc.text(`Invoice #: ${invoiceNo}`, 20, 90);
+  }
+
+  /* ---------------- CLIENT DETAILS ---------------- */
+  private addClientDetails(
+    doc: jsPDF,
+    client: ClientData,
+    issue: string,
+    due: string
+  ) {
+    doc.setFont('helvetica', 'bold');
+    doc.text('Bill To:', 20, 110);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+
+    let y = 120;
+    doc.text(client.name, 20, y);
+    doc.text(client.email, 20, y += 5);
+
+    const addressLines = doc.splitTextToSize(client.address || '', 80);
+    addressLines.forEach((line: string) => {
+      doc.text(line, 20, y += 5);
+    });
+
+    if (client.gstin) doc.text(`GSTIN: ${client.gstin}`, 20, y += 5);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Invoice Details:', 120, 110);
+
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Issue Date: ${this.formatDate(issue)}`, 120, 120);
+    doc.text(`Due Date: ${this.formatDate(due)}`, 120, 130);
+  }
+
+  /* ---------------- ITEMS TABLE ---------------- */
+  private addItemsTable(doc: jsPDF, items: InvoiceItem[]): number {
+    const startY = 160;
+    const cols = [20, 80, 95, 120, 145, 190];
+
+    doc.setFillColor(240, 240, 240);
+    doc.rect(20, startY, 175, 15, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+
+    ['Description', 'Qty', 'Rate (INR)', 'GST %', 'Amount (INR)', 'Total (INR)']
+      .forEach((h, i) => doc.text(h, cols[i], startY + 10));
+
+    let y = startY + 15;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+
+    items.forEach(item => {
+      const qty = this.toNumber(item.quantity);
+      const rate = this.toNumber(item.rate);
+      const gstPct = this.toNumber(item.gstPercentage);
+
+      const amount = qty * rate;
+      const gst = (amount * gstPct) / 100;
+      const total = amount + gst;
+
+      doc.rect(20, y, 175, 15);
+      doc.text(item.description || '-', cols[0], y + 10);
+      doc.text(String(qty), cols[1], y + 10);
+      doc.text(this.formatCurrency(rate), cols[2], y + 10, { align: 'right' });
+      doc.text(`${gstPct}%`, cols[3], y + 10);
+      doc.text(this.formatCurrency(amount), cols[4], y + 10, { align: 'right' });
+      doc.text(this.formatCurrency(total), cols[5], y + 10, { align: 'right' });
+
+      y += 15;
+    });
+
+    return y;
+  }
+
+  /* ---------------- TOTALS ---------------- */
+  private addTotals(doc: jsPDF, items: InvoiceItem[], y: number) {
+    const subtotal = items.reduce(
+      (s, i) => s + this.toNumber(i.quantity) * this.toNumber(i.rate),
+      0
+    );
+
+    const gst = items.reduce(
+      (s, i) =>
+        s +
+        (this.toNumber(i.quantity) *
+          this.toNumber(i.rate) *
+          this.toNumber(i.gstPercentage)) /
+          100,
+      0
+    );
+
+    const total = subtotal + gst;
+
+    const l = 145;
+    const r = 195;
+
+    doc.text('Subtotal:', l, y);
+    doc.text(this.formatCurrency(subtotal), r, y, { align: 'right' });
+
+    doc.text('GST:', l, y + 10);
+    doc.text(this.formatCurrency(gst), r, y + 10, { align: 'right' });
+
+    doc.line(l, y + 18, r, y + 18);
+
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total:', l, y + 25);
+    doc.text(this.formatCurrency(total), r, y + 25, { align: 'right' });
+
+    doc.rect(l - 5, y - 5, 55, 35);
+  }
+
+  /* ---------------- PAYMENT STATUS ---------------- */
+  private addPaymentStatus(doc: jsPDF, status: string, y: number) {
+    if (status === 'paid') {
+      doc.setFillColor(240, 253, 244);
+      doc.rect(20, y, 170, 20, 'F');
+      doc.setTextColor(22, 163, 74);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PAYMENT RECEIVED', 25, y + 12);
+    } else {
+      doc.setFillColor(254, 242, 242);
+      doc.rect(20, y, 170, 20, 'F');
+      doc.setTextColor(220, 38, 38);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PAYMENT PENDING', 25, y + 8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Please make payment as per terms', 25, y + 15);
+    }
+    doc.setTextColor(0, 0, 0);
+  }
+
+  /* ---------------- FOOTER ---------------- */
+  private addFooter(doc: jsPDF) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.text(
+      'This is a computer-generated invoice by Bytes Flare Infotech.',
+      20,
+      doc.internal.pageSize.height - 20
+    );
+  }
+
+  /* ---------------- MAIN ---------------- */
+  async generateInvoicePDF(data: InvoiceData): Promise<Blob> {
+    const doc = new jsPDF();
+    try {
+      this.addHeader(doc, data.companyDetails);
+      this.addInvoiceTitle(doc, data.invoiceNumber);
+      this.addClientDetails(doc, data.client, data.issueDate, data.dueDate);
+      const tableEnd = this.addItemsTable(doc, data.items || []);
+      this.addTotals(doc, data.items || [], tableEnd + 10);
+      this.addPaymentStatus(doc, data.status, tableEnd + 50);
+      this.addFooter(doc);
+    } catch {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.text('Invoice', 20, 30);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(`Invoice #: ${data.invoiceNumber || '-'}`, 20, 40);
+    }
+    return doc.output('blob');
   }
 }
 

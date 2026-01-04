@@ -11,8 +11,7 @@ import {
   Settings, 
   Menu, 
   X,
-  Plus,
-  Bell
+  Plus
 } from 'lucide-react';
 import Logo from './Logo';
 
@@ -73,18 +72,12 @@ export default function Navbar() {
               <span>Create Invoice</span>
             </Link>
 
-            {/* Notifications */}
-            <button className="p-2 text-gray-400 hover:text-gray-600 relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
-            </button>
 
             {/* User Info */}
             <div className="flex items-center space-x-2 text-sm font-medium text-gray-700">
               <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
                 <span className="text-white text-sm font-medium">BF</span>
               </div>
-              <span className="hidden md:block">Bytesflare Admin</span>
             </div>
 
             {/* Mobile menu button */}

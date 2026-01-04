@@ -6,7 +6,6 @@ import {
   Save, 
   Building2, 
   CreditCard,
-  Upload,
   Settings as SettingsIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -25,8 +24,6 @@ interface CompanyDetails {
     ifsc: string;
   };
   upiId: string;
-  logo: string;
-  signature: string;
 }
 
 export default function SettingsPage() {
@@ -48,8 +45,6 @@ export default function SettingsPage() {
         ifsc: '',
       },
       upiId: '',
-      logo: '',
-      signature: '',
     },
   });
 
@@ -97,10 +92,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleFileUpload = (field: 'logo' | 'signature') => {
-    // This would implement file upload functionality
-    toast.success(`${field} upload feature coming soon!`);
-  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -309,49 +300,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Branding */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <Upload className="w-5 h-5 mr-2" />
-            Branding
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Company Logo
-              </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600 mb-2">Upload your company logo</p>
-                <button
-                  type="button"
-                  onClick={() => handleFileUpload('logo')}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Choose File
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Digital Signature
-              </label>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600 mb-2">Upload your digital signature</p>
-                <button
-                  type="button"
-                  onClick={() => handleFileUpload('signature')}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  Choose File
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* Save Button */}
         <div className="flex justify-end">
