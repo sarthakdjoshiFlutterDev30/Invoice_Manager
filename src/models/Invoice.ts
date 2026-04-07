@@ -74,7 +74,10 @@ const InvoiceSchema = new mongoose.Schema({
     },
     method: {
       type: String,
-      enum: ['bank_transfer', 'cash', 'upi', 'other'],
+      enum: ['bank_transfer', 'cheque', 'cash', 'upi', 'other'],
+    },
+    referenceNo: {
+      type: String,   // NEFT/RTGS transaction no. or Cheque no.
     },
     transactionId: {
       type: String,

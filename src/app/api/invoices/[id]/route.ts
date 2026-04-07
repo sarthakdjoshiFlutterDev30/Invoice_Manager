@@ -53,24 +53,29 @@ export async function PATCH(
 
     const data = await req.json();
 
-      // If marking as paid, automatically generate payment details
+      // If marking as paid, generate payment details using the provided method & reference
     if (data.status === 'paid') {
       const invoice = await Invoice.findOne({ _id: id, createdBy: defaultUserId });
       
       if (invoice && invoice.status !== 'paid') {
-        // Generate payment ID
         const paymentId = `PAY-${invoice.invoiceNumber}-${Date.now().toString().slice(-6)}`;
-        
-        // Set payment details
+        const method = data.paymentMethod || 'bank_transfer';
+        const referenceNo = data.referenceNo || '';
+
         data.paymentDetails = {
-          paymentId: paymentId,
-          method: 'bank_transfer',
+          paymentId,
+          method,
+          referenceNo,
           amount: invoice.total,
           currency: 'INR',
           status: 'captured',
           paidAt: new Date(),
         };
       }
+
+      // Remove helper fields so they don't pollute the invoice document
+      delete data.paymentMethod;
+      delete data.referenceNo;
     }
 
     const invoice = await Invoice.findOneAndUpdate(

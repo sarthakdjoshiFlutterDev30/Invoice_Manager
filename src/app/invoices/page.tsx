@@ -14,7 +14,10 @@ import {
   Clock,
   AlertCircle,
   FileText,
-  RefreshCw
+  RefreshCw,
+  X,
+  Banknote,
+  CreditCard,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -33,6 +36,15 @@ interface Invoice {
   createdAt: string;
 }
 
+// ── Payment Modal State ─────────────────────────────────────
+interface PaymentModalState {
+  open: boolean;
+  invoiceId: string | null;
+  method: 'bank_transfer' | 'cheque';
+  referenceNo: string;
+  submitting: boolean;
+}
+
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filteredInvoices, setFilteredInvoices] = useState<Invoice[]>([]);
@@ -40,6 +52,13 @@ export default function InvoicesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all');
+  const [paymentModal, setPaymentModal] = useState<PaymentModalState>({
+    open: false,
+    invoiceId: null,
+    method: 'bank_transfer',
+    referenceNo: '',
+    submitting: false,
+  });
 
   useEffect(() => {
     fetchInvoices();
@@ -172,20 +191,38 @@ export default function InvoicesPage() {
     }
   };
 
-  const handleMarkAsPaid = async (invoiceId: string) => {
+  // Opens the payment modal
+  const openPaymentModal = (invoiceId: string) => {
+    setPaymentModal({ open: true, invoiceId, method: 'bank_transfer', referenceNo: '', submitting: false });
+  };
+
+  const closePaymentModal = () => {
+    setPaymentModal(p => ({ ...p, open: false, invoiceId: null, referenceNo: '' }));
+  };
+
+  const handleMarkAsPaid = async () => {
+    const { invoiceId, method, referenceNo } = paymentModal;
+    if (!invoiceId) return;
+
+    const label = method === 'bank_transfer' ? 'NEFT/RTGS Transaction No.' : 'Cheque No.';
+    if (!referenceNo.trim()) {
+      toast.error(`Please enter the ${label}`);
+      return;
+    }
+
+    setPaymentModal(p => ({ ...p, submitting: true }));
     try {
       const response = await fetch(`/api/invoices/${invoiceId}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: 'paid' }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'paid', paymentMethod: method, referenceNo: referenceNo.trim() }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        toast.success('Invoice marked as paid');
+        toast.success('Invoice marked as paid!');
+        closePaymentModal();
         fetchInvoices();
       } else {
         toast.error(data.message || 'Failed to update invoice');
@@ -193,6 +230,8 @@ export default function InvoicesPage() {
     } catch (error) {
       console.error('Error updating invoice:', error);
       toast.error('Something went wrong');
+    } finally {
+      setPaymentModal(p => ({ ...p, submitting: false }));
     }
   };
 
@@ -218,6 +257,115 @@ export default function InvoicesPage() {
 
   return (
     <div className="space-y-6">
+      {/* ── Payment Method Modal ───────────────────────────────── */}
+      {paymentModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={closePaymentModal}
+          />
+
+          {/* Modal Card */}
+          <div className="relative w-full max-w-md mx-4 bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-500 to-emerald-600 px-6 py-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-white font-bold text-base">Mark as Paid</h3>
+                  <p className="text-green-100 text-xs">Record payment details</p>
+                </div>
+              </div>
+              <button
+                onClick={closePaymentModal}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4 text-white" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-6 space-y-5">
+              {/* Method Selector */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Payment Method</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentModal(p => ({ ...p, method: 'bank_transfer', referenceNo: '' }))}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                      paymentModal.method === 'bank_transfer'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    <Banknote className="w-6 h-6" />
+                    <span className="text-xs font-bold">Bank Transfer</span>
+                    <span className="text-[10px] text-center leading-tight opacity-70">NEFT / RTGS</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentModal(p => ({ ...p, method: 'cheque', referenceNo: '' }))}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                      paymentModal.method === 'cheque'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    <CreditCard className="w-6 h-6" />
+                    <span className="text-xs font-bold">Cheque</span>
+                    <span className="text-[10px] text-center leading-tight opacity-70">Bank Cheque</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Reference Number */}
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
+                  {paymentModal.method === 'bank_transfer' ? 'NEFT / RTGS Transaction Number' : 'Cheque Number'}
+                </label>
+                <input
+                  type="text"
+                  value={paymentModal.referenceNo}
+                  onChange={e => setPaymentModal(p => ({ ...p, referenceNo: e.target.value }))}
+                  placeholder={
+                    paymentModal.method === 'bank_transfer'
+                      ? 'e.g. NEFT2024041200001234'
+                      : 'e.g. 004512'
+                  }
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-green-400 focus:ring-2 focus:ring-green-100 text-sm font-medium text-gray-800 placeholder-gray-300 outline-none transition-all"
+                  onKeyDown={e => e.key === 'Enter' && handleMarkAsPaid()}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={closePaymentModal}
+                className="flex-1 px-4 py-3 rounded-xl border-2 border-gray-200 text-gray-600 font-semibold text-sm hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMarkAsPaid}
+                disabled={paymentModal.submitting}
+                className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-green-500 to-emerald-600 text-white font-semibold text-sm hover:from-green-400 hover:to-emerald-500 disabled:opacity-60 transition-all shadow-md shadow-green-200 flex items-center justify-center gap-2"
+              >
+                {paymentModal.submitting ? (
+                  <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving...</>
+                ) : (
+                  <><CheckCircle className="w-4 h-4" /> Confirm Payment</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -448,7 +596,7 @@ export default function InvoicesPage() {
                         </Link>
                         {invoice.status === 'unpaid' && (
                           <button
-                            onClick={() => handleMarkAsPaid(invoice._id)}
+                            onClick={() => openPaymentModal(invoice._id)}
                             className="text-green-600 hover:text-green-700"
                             title="Mark as Paid"
                           >

@@ -4,6 +4,9 @@ import Invoice from '@/models/Invoice';
 import { pdfGenerator } from '@/lib/pdfGenerator';
 import fs from 'fs';
 import path from 'path';
+import User from '@/models/User';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET(
   req: NextRequest,
@@ -28,6 +31,8 @@ export async function GET(
       );
     }
 
+    const user = await User.findById(defaultUserId);
+
     // Get user's company details (using default company details for now)
     let logoDataURL = '';
     try {
@@ -38,18 +43,17 @@ export async function GET(
       }
     } catch {}
     
-    const userDetails = {
-      companyDetails: {
+    // Add logo to company details
+    const companyDetails = user?.companyDetails ? user.companyDetails.toObject() : {
         name: 'Bytesflare Infotech',
         address: 'Your Company Address',
         phone: '+91 1234567890',
         email: 'info@bytesflare.com',
         gstin: 'GSTIN123456789',
-        logo: logoDataURL,
-        signature: ''
-      }
     };
-    
+    companyDetails.logo = logoDataURL;
+    companyDetails.signature = '';
+
     const invoiceData = {
       invoiceNumber: invoice.invoiceNumber,
       client: {
@@ -68,13 +72,7 @@ export async function GET(
       paymentDetails: invoice.paymentDetails,
       notes: invoice.notes,
       termsAndConditions: invoice.termsAndConditions,
-      companyDetails: userDetails?.companyDetails || {
-        name: 'Bytesflare Infotech',
-        gstin: '29ABCDE1234F1Z5',
-        address: '123 Tech Park, Bangalore, Karnataka 560001',
-        phone: '+91 9876543210',
-        email: 'info@bytesflare.com',
-      },
+      companyDetails: companyDetails,
     };
 
     const pdfBlob = await pdfGenerator.generateInvoicePDF(invoiceData);
