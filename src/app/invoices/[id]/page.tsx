@@ -26,6 +26,16 @@ import jsPDF from 'jspdf';
 import { pdfGenerator } from '@/lib/pdfGenerator';
 import Image from 'next/image';
 
+interface PaymentEntry {
+  paymentId?: string;
+  method?: string;
+  referenceNo?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  paidAt?: string;
+}
+
 interface Invoice {
   _id: string;
   invoiceNumber: string;
@@ -49,15 +59,8 @@ interface Invoice {
   gstAmount: number;
   total: number;
   status: string;
-  paymentDetails?: {
-    paymentId?: string;
-    orderId?: string;
-    method?: string;
-    amount?: number;
-    currency?: string;
-    status?: string;
-    paidAt?: string;
-  };
+  paymentDetails?: PaymentEntry & { orderId?: string };
+  paymentHistory?: PaymentEntry[];
   notes?: string;
   termsAndConditions?: string;
   createdAt: string;
@@ -114,21 +117,54 @@ export default function InvoiceDetailPage() {
     
     // Briefly adjust styling for perfectly isolated capture
     const originalShadow = element.style.boxShadow;
+    const originalBorder = element.style.border;
+    const originalHeight = element.style.minHeight;
+    const originalPosition = element.style.position;
+    
     element.style.boxShadow = 'none';
     element.style.border = 'none';
+    element.style.minHeight = 'max-content';
+    element.style.position = 'relative'; // force relative layout context
     
-    const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+    // Remove overflow hidden which causes html2canvas to aggressively clip bottom content
+    element.classList.remove('overflow-hidden');
+    
+    // Scroll element into view so html2canvas captures it accurately
+    window.scrollTo(0, 0);
+
+    // Wait for the DOM repaint after class adjustments
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    const canvas = await html2canvas(element, { 
+      scale: 2, 
+      useCORS: true, 
+      backgroundColor: '#ffffff',
+      scrollY: -window.scrollY,
+      windowHeight: Math.max(document.documentElement.scrollHeight, element.scrollHeight + 200),
+      height: element.offsetHeight + 50 // force extra height on capture buffer
+    });
     const imgData = canvas.toDataURL('image/jpeg', 1.0);
     
     // Restore
     element.style.boxShadow = originalShadow;
+    element.style.border = originalBorder;
+    element.style.minHeight = originalHeight;
+    element.style.position = originalPosition;
+    element.classList.add('overflow-hidden');
     
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    // Maintain aspect ratio
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    // We use a standard A4 width (210mm) and calculate the proportional dynamic height
+    const pdfWidth = 210;
+    const imgHeight = (canvas.height * pdfWidth) / canvas.width;
     
-    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+    // Create a single custom-sized PDF page that perfectly fits the layout
+    const pdf = new jsPDF({
+      orientation: 'p',
+      unit: 'mm',
+      format: [pdfWidth, imgHeight]
+    });
+    
+    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, imgHeight);
+    
     return pdf;
   };
 
@@ -140,7 +176,7 @@ export default function InvoiceDetailPage() {
       pdf.save(`Invoice-${invoice.invoiceNumber}.pdf`);
       toast.success('PDF downloaded successfully!');
     } catch (error) {
-      console.error('Error generating PDF:', error);
+      console.error('Error downloading PDF:', error);
       toast.error('Failed to download PDF');
     } finally {
       setDownloading(false);
@@ -242,6 +278,8 @@ export default function InvoiceDetailPage() {
 
   const sc = statusConfig[invoice.status as keyof typeof statusConfig] || statusConfig.unpaid;
   const StatusIcon = sc.icon;
+
+  const netPayable = invoice.total - ((invoice.subtotal || 0) * 0.1);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-100">
@@ -527,30 +565,150 @@ export default function InvoiceDetailPage() {
           <div className="px-8 pb-6 bg-white">
             {invoice.status === 'paid' ? (
               <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-5">
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
                     <CheckCircle className="w-5 h-5 text-white" />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-emerald-800">Payment Received</h3>
-                    <p className="text-xs text-emerald-600">This invoice has been paid in full</p>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-emerald-800">Payment Received in Full</h3>
+                    <p className="text-xs text-emerald-600">
+                      {(invoice.paymentHistory?.length || 0) > 1
+                        ? `Settled across ${invoice.paymentHistory!.length} payment(s)`
+                        : 'This invoice has been paid in full'}
+                    </p>
                   </div>
                 </div>
-                {invoice.paymentDetails && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
-                    {[
-                      { label: 'Payment ID', value: invoice.paymentDetails?.paymentId || `PAY-${invoice.invoiceNumber}` },
-                      { label: 'Method', value: invoice.paymentDetails?.method === 'bank_transfer' ? 'Bank Transfer' : invoice.paymentDetails?.method === 'cheque' ? 'Cheque' : (invoice.paymentDetails?.method || 'Bank Transfer') },
-                      { label: invoice.paymentDetails?.method === 'cheque' ? 'Cheque No.' : 'Txn Ref. No.', value: (invoice.paymentDetails as any)?.referenceNo || '—' },
-                      { label: 'Amount', value: formatCurrency(invoice.paymentDetails?.amount || invoice.total) },
-                      { label: 'Paid On', value: invoice.paymentDetails?.paidAt ? formatDate(invoice.paymentDetails.paidAt) : formatDate(invoice.updatedAt) },
-                    ].map((d) => (
-                      <div key={d.label} className="bg-white rounded-xl p-3 border border-emerald-100">
-                        <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">{d.label}</p>
-                        <p className="font-bold text-emerald-800 text-sm break-all">{d.value}</p>
+
+                {/* Payment History Timeline */}
+                {invoice.paymentHistory && invoice.paymentHistory.length > 0 ? (
+                  <div className="space-y-3">
+                    {invoice.paymentHistory.map((p, idx) => (
+                      <div key={idx} className="bg-white rounded-xl border border-emerald-100 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                            Payment {idx + 1} {idx === (invoice.paymentHistory!.length - 1) && invoice.paymentHistory!.length > 1 ? '· Final' : ''}
+                          </span>
+                          <span className="text-sm font-black text-emerald-800">{formatCurrency(p.amount || 0)}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {[
+                            { label: 'Payment ID', value: p.paymentId || '—' },
+                            { label: 'Method', value: p.method === 'bank_transfer' ? 'Bank Transfer' : p.method === 'cheque' ? 'Cheque' : (p.method || 'Bank Transfer') },
+                            { label: p.method === 'cheque' ? 'Cheque No.' : 'Txn Ref. No.', value: p.referenceNo || '—' },
+                            { label: 'Paid On', value: p.paidAt ? formatDate(p.paidAt) : '—' },
+                          ].map((d) => (
+                            <div key={d.label}>
+                              <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-0.5">{d.label}</p>
+                              <p className="font-semibold text-emerald-900 text-xs break-all">{d.value}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {/* Grand total row */}
+                    {invoice.paymentHistory.length > 1 && (
+                      <div className="flex justify-between items-center px-4 py-2 bg-emerald-600 rounded-xl">
+                        <span className="text-white text-xs font-bold uppercase tracking-wider">Total Paid</span>
+                        <span className="text-white font-black">
+                          {formatCurrency(invoice.paymentHistory.reduce((s, p) => s + (p.amount || 0), 0))}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Fallback: old invoices with only paymentDetails */
+                  invoice.paymentDetails && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Payment ID', value: invoice.paymentDetails?.paymentId || `PAY-${invoice.invoiceNumber}` },
+                        { label: 'Method', value: invoice.paymentDetails?.method === 'bank_transfer' ? 'Bank Transfer' : invoice.paymentDetails?.method === 'cheque' ? 'Cheque' : (invoice.paymentDetails?.method || 'Bank Transfer') },
+                        { label: invoice.paymentDetails?.method === 'cheque' ? 'Cheque No.' : 'Txn Ref. No.', value: (invoice.paymentDetails as any)?.referenceNo || '—' },
+                        { label: 'Amount', value: formatCurrency(invoice.paymentDetails?.amount || invoice.total) },
+                        { label: 'Paid On', value: invoice.paymentDetails?.paidAt ? formatDate(invoice.paymentDetails.paidAt) : formatDate(invoice.updatedAt) },
+                      ].map((d) => (
+                        <div key={d.label} className="bg-white rounded-xl p-3 border border-emerald-100">
+                          <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">{d.label}</p>
+                          <p className="font-bold text-emerald-800 text-sm break-all">{d.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+            ) : invoice.status === 'partial' ? (
+              <div className="rounded-2xl bg-amber-50 border border-amber-200 p-5">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-amber-800">Partial Payment Received</h3>
+                    <p className="text-xs text-amber-600">Balance is still pending from the client</p>
+                  </div>
+                  <div className="flex gap-3 shrink-0">
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Paid</p>
+                      <p className="text-sm font-black text-amber-800">{formatCurrency((invoice.paymentHistory || []).reduce((s, p) => s + (p.amount || 0), 0) || invoice.paymentDetails?.amount || 0)}</p>
+                    </div>
+                    <div className="w-px bg-amber-200" />
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">Balance Due</p>
+                      <p className="text-sm font-black text-red-700">{formatCurrency(netPayable - ((invoice.paymentHistory || []).reduce((s, p) => s + (p.amount || 0), 0) || invoice.paymentDetails?.amount || 0))}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="w-full bg-amber-100 rounded-full h-2 mb-4 overflow-hidden">
+                  <div
+                    className="h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all"
+                    style={{ width: `${Math.min(100, (((invoice.paymentHistory || []).reduce((s, p) => s + (p.amount || 0), 0) || invoice.paymentDetails?.amount || 0) / netPayable) * 100)}%` }}
+                  />
+                </div>
+
+                {/* Payment History Timeline */}
+                {invoice.paymentHistory && invoice.paymentHistory.length > 0 ? (
+                  <div className="space-y-3">
+                    {invoice.paymentHistory.map((p, idx) => (
+                      <div key={idx} className="bg-white rounded-xl border border-amber-100 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-[10px] font-black text-amber-600 bg-amber-100 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                            Payment {idx + 1}
+                          </span>
+                          <span className="text-sm font-black text-amber-800">{formatCurrency(p.amount || 0)}</span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                          {[
+                            { label: 'Payment ID', value: p.paymentId || '—' },
+                            { label: 'Method', value: p.method === 'bank_transfer' ? 'Bank Transfer' : p.method === 'cheque' ? 'Cheque' : (p.method || 'Bank Transfer') },
+                            { label: p.method === 'cheque' ? 'Cheque No.' : 'Txn Ref. No.', value: p.referenceNo || '—' },
+                            { label: 'Paid On', value: p.paidAt ? formatDate(p.paidAt) : '—' },
+                          ].map((d) => (
+                            <div key={d.label}>
+                              <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-0.5">{d.label}</p>
+                              <p className="font-semibold text-amber-900 text-xs break-all">{d.value}</p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
+                ) : (
+                  invoice.paymentDetails && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[
+                        { label: 'Payment ID', value: invoice.paymentDetails?.paymentId || `PAY-${invoice.invoiceNumber}` },
+                        { label: 'Method', value: invoice.paymentDetails?.method === 'bank_transfer' ? 'Bank Transfer' : invoice.paymentDetails?.method === 'cheque' ? 'Cheque' : (invoice.paymentDetails?.method || 'Bank Transfer') },
+                        { label: invoice.paymentDetails?.method === 'cheque' ? 'Cheque No.' : 'Txn Ref. No.', value: (invoice.paymentDetails as any)?.referenceNo || '—' },
+                        { label: 'Amount Paid', value: formatCurrency(invoice.paymentDetails?.amount || 0) },
+                        { label: 'Balance Due', value: formatCurrency(netPayable - (invoice.paymentDetails?.amount || 0)) },
+                        { label: 'Paid On', value: invoice.paymentDetails?.paidAt ? formatDate(invoice.paymentDetails.paidAt) : formatDate(invoice.updatedAt) },
+                      ].map((d) => (
+                        <div key={d.label} className="bg-white rounded-xl p-3 border border-amber-100">
+                          <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-1">{d.label}</p>
+                          <p className="font-bold text-amber-800 text-sm break-all">{d.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )}
               </div>
             ) : (
@@ -585,7 +743,7 @@ export default function InvoiceDetailPage() {
           )}
 
           {/* ── Bank Details ── */}
-          {(company?.bankDetails?.accountName || company?.bankDetails?.accountNumber || company?.bankDetails?.bankName || company?.bankDetails?.ifsc || company?.upiId) && (
+          {invoice.status !== 'paid' && (company?.bankDetails?.accountName || company?.bankDetails?.accountNumber || company?.bankDetails?.bankName || company?.bankDetails?.ifsc) && (
             <div className="px-8 pb-8 bg-white">
               <div className="rounded-2xl border border-indigo-100 overflow-hidden">
                 {/* Header */}
@@ -619,12 +777,7 @@ export default function InvoiceDetailPage() {
                       <p className="text-sm font-semibold text-slate-800 font-mono">{company.bankDetails.ifsc}</p>
                     </div>
                   )}
-                  {company?.upiId && (
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">UPI ID</p>
-                      <p className="text-sm font-semibold text-slate-800">{company.upiId}</p>
-                    </div>
-                  )}
+
                 </div>
               </div>
             </div>

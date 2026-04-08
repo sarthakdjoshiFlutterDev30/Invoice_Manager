@@ -92,12 +92,24 @@ const InvoiceSchema = new mongoose.Schema({
     },
     status: {
       type: String,
-      enum: ['created', 'authorized', 'captured', 'refunded', 'failed'],
+      enum: ['created', 'authorized', 'captured', 'refunded', 'failed', 'partial'],
     },
     paidAt: {
       type: Date,
     },
   },
+  // Full history of all payments recorded against this invoice
+  paymentHistory: [
+    {
+      paymentId:   { type: String },
+      method:      { type: String, enum: ['bank_transfer', 'cheque', 'cash', 'upi', 'other'] },
+      referenceNo: { type: String },
+      amount:      { type: Number, default: 0 },
+      currency:    { type: String, default: 'INR' },
+      status:      { type: String, enum: ['captured', 'partial'] },
+      paidAt:      { type: Date },
+    },
+  ],
   notes: {
     type: String,
   },

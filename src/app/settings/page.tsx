@@ -26,7 +26,6 @@ interface CompanyDetails {
     bankName: string;
     ifsc: string;
   };
-  upiId: string;
   logo?: string;
 }
 
@@ -56,7 +55,6 @@ export default function SettingsPage() {
         bankName: '',
         ifsc: '',
       },
-      upiId: '',
       logo: '',
     },
   });
@@ -85,7 +83,6 @@ export default function SettingsPage() {
         setValue('bankDetails.accountNumber', data.bankDetails?.accountNumber || '');
         setValue('bankDetails.bankName',      data.bankDetails?.bankName      || '');
         setValue('bankDetails.ifsc',          data.bankDetails?.ifsc          || '');
-        setValue('upiId', data.upiId || '');
         setValue('logo',  data.logo  || '');
         setLogoPreview(data.logo || '');
       } else {
@@ -267,10 +264,6 @@ export default function SettingsPage() {
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">UPI ID</label>
-              <input type="text" {...register('upiId')} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="company@paytm" />
-            </div>
           </div>
 
           <div className="mt-4">

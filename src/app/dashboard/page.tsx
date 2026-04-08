@@ -43,10 +43,23 @@ export default function Dashboard() {
     invoiceNumber: string;
     client: { name: string };
     total: number;
+    subtotal?: number;
     status: string;
     issueDate: string;
   }>>([]);
   const [loading, setLoading] = useState(true);
+
+  const getNetPayable = (invoice: { total: number; subtotal?: number }) => {
+    const tdsAmount = (invoice.subtotal || 0) * 0.1;
+    return invoice.total - tdsAmount;
+  };
+
+  const getPendingAmount = (invoice: { status: string; total: number; subtotal?: number; paymentHistory?: { amount?: number }[]; paymentDetails?: { amount?: number } }) => {
+    if (invoice.status === 'paid') return 0;
+    const net = getNetPayable(invoice);
+    const paid = (invoice.paymentHistory || []).reduce((s, p) => s + (p.amount || 0), 0) || invoice.paymentDetails?.amount || 0;
+    return Math.max(0, net - paid);
+  };
 
   // Fetch dashboard data
   useEffect(() => {
@@ -84,12 +97,12 @@ export default function Dashboard() {
         const clients = clientsData.data || [];
         
         // Calculate stats
-        const totalRevenue = invoices.reduce((sum: number, invoice: { status: string; total: number }) => 
-          invoice.status === 'paid' ? sum + invoice.total : sum, 0
+        const totalRevenue = invoices.reduce((sum: number, invoice: { status: string; total: number; subtotal?: number }) => 
+          invoice.status === 'paid' ? sum + getNetPayable(invoice) : sum, 0
         );
         
-        const pendingAmount = invoices.reduce((sum: number, invoice: { status: string; total: number }) => 
-          invoice.status === 'unpaid' ? sum + invoice.total : sum, 0
+        const pendingAmount = invoices.reduce((sum: number, invoice: { status: string; total: number; subtotal?: number; paymentHistory?: { amount?: number }[]; paymentDetails?: { amount?: number } }) => 
+          invoice.status === 'unpaid' || invoice.status === 'partial' ? sum + getPendingAmount(invoice) : sum, 0
         );
         
         const paidInvoices = invoices.filter((invoice: { status: string }) => invoice.status === 'paid').length;
@@ -109,7 +122,7 @@ export default function Dashboard() {
                    paymentDate.getFullYear() === currentYear &&
                    invoice.status === 'paid';
           })
-          .reduce((sum: number, invoice: { total: number }) => sum + invoice.total, 0);
+          .reduce((sum: number, invoice: { total: number; subtotal?: number }) => sum + getNetPayable(invoice), 0);
         
         // Calculate growth rate (simplified)
         const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
@@ -124,7 +137,7 @@ export default function Dashboard() {
                    paymentDate.getFullYear() === currentYear &&
                    invoice.status === 'paid';
           })
-          .reduce((sum: number, invoice: { total: number }) => sum + invoice.total, 0);
+          .reduce((sum: number, invoice: { total: number; subtotal?: number }) => sum + getNetPayable(invoice), 0);
         
         const growthRate = lastMonthRevenue > 0 
           ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
@@ -335,7 +348,7 @@ export default function Dashboard() {
                     {invoice.client?.name || 'N/A'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(invoice.total)}
+                    {formatCurrency(getNetPayable(invoice))}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {getStatusBadge(invoice.status)}

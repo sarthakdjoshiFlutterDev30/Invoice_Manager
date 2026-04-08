@@ -70,6 +70,7 @@ export async function GET(
       total: invoice.total,
       status: invoice.status,
       paymentDetails: invoice.paymentDetails,
+      paymentHistory: invoice.paymentHistory,
       notes: invoice.notes,
       termsAndConditions: invoice.termsAndConditions,
       companyDetails: companyDetails,

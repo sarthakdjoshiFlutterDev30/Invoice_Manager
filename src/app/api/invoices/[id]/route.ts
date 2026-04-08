@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Invoice from '@/models/Invoice';
+import '@/models/Client'; // Ensure Client schema is registered for populate
 
 // GET single invoice
 export async function GET(
@@ -53,34 +54,58 @@ export async function PATCH(
 
     const data = await req.json();
 
-      // If marking as paid, generate payment details using the provided method & reference
-    if (data.status === 'paid') {
-      const invoice = await Invoice.findOne({ _id: id, createdBy: defaultUserId });
-      
-      if (invoice && invoice.status !== 'paid') {
-        const paymentId = `PAY-${invoice.invoiceNumber}-${Date.now().toString().slice(-6)}`;
-        const method = data.paymentMethod || 'bank_transfer';
-        const referenceNo = data.referenceNo || '';
-
-        data.paymentDetails = {
-          paymentId,
-          method,
-          referenceNo,
-          amount: invoice.total,
-          currency: 'INR',
-          status: 'captured',
-          paidAt: new Date(),
-        };
+    // ── Payment recording: partial or full ─────────────────────
+    if (data.status === 'paid' || data.status === 'partial') {
+      const invoiceDoc = await Invoice.findOne({ _id: id, createdBy: defaultUserId });
+      if (!invoiceDoc) {
+        return NextResponse.json({ success: false, message: 'Invoice not found' }, { status: 404 });
       }
 
-      // Remove helper fields so they don't pollute the invoice document
+      const netPayable = invoiceDoc.total - ((invoiceDoc.subtotal || 0) * 0.1);
+      const paymentId  = `PAY-${invoiceDoc.invoiceNumber}-${Date.now().toString().slice(-6)}`;
+      const method     = data.paymentMethod || 'bank_transfer';
+      const referenceNo = data.referenceNo || '';
+      const paidAmount  = typeof data.paidAmount === 'number' ? data.paidAmount : netPayable;
+
+      // Build the FULL history array in JS
+      const previousHistory = invoiceDoc.paymentHistory ? invoiceDoc.paymentHistory.map((p: any) => p.toObject ? p.toObject() : p) : [];
+      const previouslyPaid = previousHistory.reduce(
+        (sum: number, p: any) => sum + (p.amount || 0), 0
+      );
+      const totalPaidAfterThis = previouslyPaid + paidAmount;
+
+      // Determine new status
+      const newStatus = totalPaidAfterThis >= (netPayable - 0.01) ? 'paid' : 'partial';
+      const entryStatus = newStatus === 'paid' ? 'captured' : 'partial';
+
+      const newEntry = {
+        paymentId,
+        method,
+        referenceNo,
+        amount: paidAmount,
+        currency: 'INR',
+        status: entryStatus,
+        paidAt: new Date(),
+      };
+
+      // paymentDetails = latest payment; paymentHistory = all payments
+      data.paymentDetails = newEntry;
+      data.status         = newStatus;
+      data.paymentHistory = [...previousHistory, newEntry];
+
+      // Remove helper fields
       delete data.paymentMethod;
       delete data.referenceNo;
+      delete data.paidAmount;
     }
+
+    const updateOp: any = {
+      $set: { ...data, updatedAt: new Date() },
+    };
 
     const invoice = await Invoice.findOneAndUpdate(
       { _id: id, createdBy: defaultUserId },
-      { ...data, updatedAt: new Date() },
+      updateOp,
       { new: true }
     ).populate('client', 'name email address gstin');
     

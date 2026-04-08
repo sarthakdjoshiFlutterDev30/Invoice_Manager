@@ -32,16 +32,27 @@ interface Invoice {
   issueDate: string;
   dueDate: string;
   total: number;
+  subtotal?: number;
   status: 'paid' | 'unpaid' | 'partial' | 'cancelled';
   createdAt: string;
+  paymentDetails?: { amount?: number };
+  paymentHistory?: { amount?: number }[];
 }
 
 // ── Payment Modal State ─────────────────────────────────────
+type AmountOption = '50' | '100' | 'custom';
+
 interface PaymentModalState {
   open: boolean;
   invoiceId: string | null;
+  invoiceTotal: number;      // remaining balance (what's left to pay)
+  fullTotal: number;         // original invoice total
+  alreadyPaid: number;       // amount already paid
+  isPartial: boolean;        // was previously a partial payment
   method: 'bank_transfer' | 'cheque';
   referenceNo: string;
+  amountOption: AmountOption;
+  customAmount: string;
   submitting: boolean;
 }
 
@@ -55,8 +66,14 @@ export default function InvoicesPage() {
   const [paymentModal, setPaymentModal] = useState<PaymentModalState>({
     open: false,
     invoiceId: null,
+    invoiceTotal: 0,
+    fullTotal: 0,
+    alreadyPaid: 0,
+    isPartial: false,
     method: 'bank_transfer',
     referenceNo: '',
+    amountOption: '100',
+    customAmount: '',
     submitting: false,
   });
 
@@ -148,6 +165,18 @@ export default function InvoicesPage() {
     }).format(amount);
   };
 
+  const getNetPayable = (invoice: Invoice) => {
+    const tdsAmount = (invoice.subtotal || 0) * 0.1;
+    return invoice.total - tdsAmount;
+  };
+
+  const getPendingAmount = (invoice: Invoice) => {
+    if (invoice.status === 'paid') return 0;
+    const net = getNetPayable(invoice);
+    const paid = (invoice.paymentHistory || []).reduce((s, p) => s + (p.amount || 0), 0) || invoice.paymentDetails?.amount || 0;
+    return Math.max(0, net - paid);
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-IN');
   };
@@ -191,17 +220,42 @@ export default function InvoicesPage() {
     }
   };
 
-  // Opens the payment modal
-  const openPaymentModal = (invoiceId: string) => {
-    setPaymentModal({ open: true, invoiceId, method: 'bank_transfer', referenceNo: '', submitting: false });
+  // Opens the payment modal — passes the REMAINING balance for partial invoices
+  const openPaymentModal = (invoice: Invoice) => {
+    const net = getNetPayable(invoice);
+    const alreadyPaid = (invoice.paymentHistory || []).reduce((s, p) => s + (p.amount || 0), 0)
+      || invoice.paymentDetails?.amount || 0;
+    const remaining = Math.max(0, net - alreadyPaid);
+    const isPartial = invoice.status === 'partial';
+    setPaymentModal({
+      open: true,
+      invoiceId: invoice._id,
+      invoiceTotal: remaining,
+      method: 'bank_transfer',
+      referenceNo: '',
+      amountOption: '100',
+      customAmount: '',
+      submitting: false,
+      isPartial,
+      alreadyPaid,
+      fullTotal: net,
+    });
   };
 
   const closePaymentModal = () => {
-    setPaymentModal(p => ({ ...p, open: false, invoiceId: null, referenceNo: '' }));
+    setPaymentModal(p => ({ ...p, open: false, invoiceId: null, referenceNo: '', customAmount: '' }));
+  };
+
+  const getPaymentAmount = () => {
+    const { amountOption, invoiceTotal, customAmount } = paymentModal;
+    if (amountOption === '50') return invoiceTotal * 0.5;
+    if (amountOption === '100') return invoiceTotal;
+    const parsed = parseFloat(customAmount);
+    return isNaN(parsed) ? 0 : parsed;
   };
 
   const handleMarkAsPaid = async () => {
-    const { invoiceId, method, referenceNo } = paymentModal;
+    const { invoiceId, method, referenceNo, amountOption, invoiceTotal } = paymentModal;
     if (!invoiceId) return;
 
     const label = method === 'bank_transfer' ? 'NEFT/RTGS Transaction No.' : 'Cheque No.';
@@ -210,18 +264,27 @@ export default function InvoicesPage() {
       return;
     }
 
+    const amount = getPaymentAmount();
+    if (amountOption === 'custom') {
+      if (!amount || amount <= 0) { toast.error('Please enter a valid amount'); return; }
+      if (amount > invoiceTotal) { toast.error('Amount cannot exceed invoice total'); return; }
+    }
+
+    // Determine status: full amount = paid, partial = partial
+    const newStatus = amount >= invoiceTotal ? 'paid' : 'partial';
+
     setPaymentModal(p => ({ ...p, submitting: true }));
     try {
       const response = await fetch(`/api/invoices/${invoiceId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'paid', paymentMethod: method, referenceNo: referenceNo.trim() }),
+        body: JSON.stringify({ status: newStatus, paymentMethod: method, referenceNo: referenceNo.trim(), paidAmount: amount }),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        toast.success('Invoice marked as paid!');
+        toast.success(newStatus === 'paid' ? 'Invoice marked as paid!' : `Partial payment of ${formatCurrency(amount)} recorded!`);
         closePaymentModal();
         fetchInvoices();
       } else {
@@ -275,8 +338,16 @@ export default function InvoicesPage() {
                   <CheckCircle className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-white font-bold text-base">Mark as Paid</h3>
-                  <p className="text-green-100 text-xs">Record payment details</p>
+                  <h3 className="text-white font-bold text-base">Record Payment</h3>
+                  {paymentModal.isPartial ? (
+                    <div className="text-green-100 text-xs">
+                      <span className="text-white/60">Already paid: </span>{formatCurrency(paymentModal.alreadyPaid)}
+                      <span className="mx-1.5 text-white/30">·</span>
+                      <span className="font-bold text-white">Balance due: {formatCurrency(paymentModal.invoiceTotal)}</span>
+                    </div>
+                  ) : (
+                    <p className="text-green-100 text-xs">Invoice total: {formatCurrency(paymentModal.invoiceTotal)}</p>
+                  )}
                 </div>
               </div>
               <button
@@ -289,7 +360,60 @@ export default function InvoicesPage() {
 
             {/* Body */}
             <div className="px-6 py-6 space-y-5">
-              {/* Method Selector */}
+
+              {/* ── Amount Option ── */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Payment Amount</p>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {(['50', '100', 'custom'] as AmountOption[]).map(opt => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => setPaymentModal(p => ({ ...p, amountOption: opt, customAmount: '' }))}
+                      className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 transition-all ${
+                        paymentModal.amountOption === opt
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      <span className="text-sm font-black">{opt === 'custom' ? 'Custom' : `${opt}%`}</span>
+                      {opt !== 'custom' && (
+                        <span className="text-[10px] font-semibold opacity-70">
+                          {formatCurrency(paymentModal.invoiceTotal * (parseInt(opt) / 100))}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {paymentModal.amountOption === 'custom' && (
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-sm">₹</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max={paymentModal.invoiceTotal}
+                      value={paymentModal.customAmount}
+                      onChange={e => setPaymentModal(p => ({ ...p, customAmount: e.target.value }))}
+                      placeholder={`Max ${formatCurrency(paymentModal.invoiceTotal)}`}
+                      className="w-full pl-8 pr-4 py-3 rounded-xl border-2 border-gray-200 focus:border-green-400 focus:ring-2 focus:ring-green-100 text-sm font-medium text-gray-800 placeholder-gray-300 outline-none transition-all"
+                    />
+                  </div>
+                )}
+                {/* Amount preview chip */}
+                {paymentModal.amountOption !== 'custom' && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs text-gray-400">Amount to record:</span>
+                    <span className="text-xs font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                      {formatCurrency(getPaymentAmount())}
+                    </span>
+                    {paymentModal.amountOption === '50' && (
+                      <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full font-semibold">Partial</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── Method Selector ── */}
               <div>
                 <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Payment Method</p>
                 <div className="grid grid-cols-2 gap-3">
@@ -322,7 +446,7 @@ export default function InvoicesPage() {
                 </div>
               </div>
 
-              {/* Reference Number */}
+              {/* ── Reference Number ── */}
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2">
                   {paymentModal.method === 'bank_transfer' ? 'NEFT / RTGS Transaction Number' : 'Cheque Number'}
@@ -404,7 +528,7 @@ export default function InvoicesPage() {
                 {formatCurrency(
                   invoices
                     .filter(inv => inv.status === 'paid')
-                    .reduce((sum, inv) => sum + inv.total, 0)
+                    .reduce((sum, inv) => sum + getNetPayable(inv), 0)
                 )}
               </p>
             </div>
@@ -449,8 +573,8 @@ export default function InvoicesPage() {
               <p className="text-2xl font-bold text-gray-900">
                 {formatCurrency(
                   invoices
-                    .filter(inv => inv.status === 'unpaid')
-                    .reduce((sum, inv) => sum + inv.total, 0)
+                    .filter(inv => inv.status === 'unpaid' || inv.status === 'partial')
+                    .reduce((sum, inv) => sum + getPendingAmount(inv), 0)
                 )}
               </p>
             </div>
@@ -561,7 +685,7 @@ export default function InvoicesPage() {
                       {formatDate(invoice.dueDate)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(invoice.total)}
+                      {formatCurrency(getNetPayable(invoice))}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(invoice.status)}
@@ -594,11 +718,11 @@ export default function InvoicesPage() {
                         >
                           <Edit className="w-4 h-4" />
                         </Link>
-                        {invoice.status === 'unpaid' && (
+                        {(invoice.status === 'unpaid' || invoice.status === 'partial') && (
                           <button
-                            onClick={() => openPaymentModal(invoice._id)}
+                            onClick={() => openPaymentModal(invoice)}
                             className="text-green-600 hover:text-green-700"
-                            title="Mark as Paid"
+                            title="Record Payment"
                           >
                             <CheckCircle className="w-4 h-4" />
                           </button>

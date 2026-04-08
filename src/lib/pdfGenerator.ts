@@ -21,12 +21,20 @@ interface InvoiceData {
   notes?: string;
   termsAndConditions?: string;
   companyDetails?: CompanyDetails;
+  updatedAt?: string;
   paymentDetails?: {
     paymentId?: string;
     method?: string;
     amount?: number;
     paidAt?: string;
   };
+  paymentHistory?: {
+    paymentId?: string;
+    method?: string;
+    referenceNo?: string;
+    amount?: number;
+    paidAt?: string;
+  }[];
 }
 
 interface ClientData {
@@ -92,6 +100,17 @@ export class PDFGenerator {
 
   private setFillColor(doc: jsPDF, rgb: [number, number, number]) {
     doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+  }
+
+  /** Checks if adding `requiredHeight` to `currentY` will exceed page bounds. Returns new Y. */
+  private checkPageWrap(doc: jsPDF, currentY: number, requiredHeight: number): number {
+    const pageHeight = doc.internal.pageSize.height;
+    const bottomMargin = 20; // Reserve 20mm for footer/edges
+    if (currentY + requiredHeight > pageHeight - bottomMargin) {
+      doc.addPage();
+      return 15; // Top margin for fresh page
+    }
+    return currentY;
   }
 
   // ─── Header Section ──────────────────────────────────────────────
@@ -278,9 +297,11 @@ export class PDFGenerator {
       const gstAmt = (amt * gstPct) / 100;
       const lineTotal = amt + gstAmt;
 
-      y += 8; // Row padding top
-
       const descLines = doc.splitTextToSize(item.description || '-', tableWidth * 0.40);
+      const rowHeight = 8 + ((descLines.length - 1) * 5) + 4; // top padding + lines + bottom padding
+      
+      y = this.checkPageWrap(doc, y, rowHeight);
+      y += 8; // Row padding top
       
       // Values
       const rowData = [
@@ -320,7 +341,12 @@ export class PDFGenerator {
     // Compute totals if not provided directly
     const subtotal = data.subtotal ?? (data.items || []).reduce((s, i) => s + (this.toNumber(i.quantity) * this.toNumber(i.rate)), 0);
     const gstAmount = data.gstAmount ?? (data.items || []).reduce((s, i) => s + ((this.toNumber(i.quantity) * this.toNumber(i.rate) * this.toNumber(i.gstPercentage)) / 100), 0);
-    const total = data.total ?? (subtotal + gstAmount);
+    const grossTotal = data.total ?? (subtotal + gstAmount); // gross total with gst
+    const tdsAmount = subtotal * 0.1; // 10% TDS on subtotal
+    const netTotal = grossTotal - tdsAmount;
+
+    // Totals block needs ~40mm
+    y = this.checkPageWrap(doc, y, 40);
 
     const rightCol = pageWidth - 14;
     const leftCol = pageWidth - 70;
@@ -341,20 +367,89 @@ export class PDFGenerator {
     this.setTextColor(doc, COLORS.text);
     doc.text(this.formatCurrency(gstAmount), rightCol, cy, { align: 'right' });
 
+    // Gross Total line
+    cy += 7;
+    this.setTextColor(doc, COLORS.text);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Gross Total (incl. GST)', leftCol, cy);
+    doc.text(this.formatCurrency(grossTotal), rightCol, cy, { align: 'right' });
+
+    // TDS Deductible
+    cy += 7;
+    this.setTextColor(doc, [194, 65, 12]); // amber-700 approx
+    doc.setFont('helvetica', 'bold');
+    doc.text('TDS Deductible (Sec 194J @ 10%)', leftCol, cy);
+    doc.text(`- ${this.formatCurrency(tdsAmount)}`, rightCol, cy, { align: 'right' });
+
     cy += 6;
     this.setDrawColor(doc, COLORS.border);
     doc.setLineWidth(0.3);
     doc.line(leftCol, cy, rightCol, cy);
 
+    // Final Net Payable
     cy += 8;
-    this.setTextColor(doc, COLORS.text);
+    this.setFillColor(doc, [5, 150, 105]); // emerald-600 approx
+    doc.rect(leftCol - 5, cy - 6, rightCol - leftCol + 10, 10, 'F');
+    this.setTextColor(doc, [255, 255, 255]);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.text('Total', leftCol, cy);
-    // Use INR text explicitly instead of symbol to avoid font rendering issues
-    doc.text(`INR ${this.formatCurrency(total)}`, rightCol, cy, { align: 'right' });
+    doc.text('Net Payable (after TDS)', leftCol, cy + 1);
+    doc.text(`INR ${this.formatCurrency(netTotal)}`, rightCol, cy + 1, { align: 'right' });
 
-    return cy + 10;
+    return cy + 15;
+  }
+
+  // ─── Payment History ──────────────────────────────────────────────
+  private addPaymentHistory(doc: jsPDF, data: InvoiceData, startY: number): number {
+    if (!data.paymentHistory || data.paymentHistory.length === 0) return startY;
+    
+    let y = startY;
+    const pageWidth = doc.internal.pageSize.width;
+
+    data.paymentHistory.forEach((p, idx) => {
+      y = this.checkPageWrap(doc, y, 28);
+      let cy = y + 5;
+
+      if (idx === 0) {
+        doc.setFontSize(10);
+        this.setTextColor(doc, COLORS.text);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Payment History (${data.paymentHistory!.length} partial payments)`, 14, cy);
+        cy += 8;
+      }
+
+      // Light border around payment
+      this.setDrawColor(doc, COLORS.border);
+      doc.setLineWidth(0.1);
+      doc.roundedRect(14, cy, pageWidth - 28, 20, 2, 2, 'D');
+
+      doc.setFontSize(8);
+      
+      // Payment badge
+      this.setFillColor(doc, [219, 234, 254]); // blue-100
+      this.setTextColor(doc, [30, 64, 175]); // blue-800
+      doc.roundedRect(18, cy + 4, 25, 5, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Payment ${idx + 1}`, 20, cy + 7.5);
+
+      // Amount
+      this.setTextColor(doc, COLORS.text);
+      doc.setFontSize(9);
+      doc.text(`INR ${this.formatCurrency(p.amount)}`, pageWidth - 18, cy + 8, { align: 'right' });
+
+      // Details
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      this.setTextColor(doc, COLORS.textMuted);
+      
+      const pMethod = p.method === 'bank_transfer' ? 'Bank Transfer' : p.method === 'cheque' ? 'Cheque' : p.method;
+      doc.text(`ID: ${p.paymentId || '-'}  •  Method: ${pMethod || '-'}  •  Ref: ${p.referenceNo || '-'}  •  Date: ${p.paidAt ? this.formatDate(p.paidAt) : '-'}`, 18, cy + 16);
+
+      cy += 24;
+      y = cy - 5; // Update outer y reference
+    });
+
+    return y + 5;
   }
 
   // ─── Notes & Footer ───────────────────────────────────────────────
@@ -362,11 +457,14 @@ export class PDFGenerator {
     const pageWidth = doc.internal.pageSize.width;
     const pageHeight = doc.internal.pageSize.height;
     
-    let cy = y + 10;
-    
     doc.setFontSize(8);
     
     if (data.notes) {
+      const lines = doc.splitTextToSize(data.notes, pageWidth - 100);
+      const needed = 10 + (lines.length * 4);
+      y = this.checkPageWrap(doc, y, needed);
+      let cy = y + 10;
+      
       doc.setFont('helvetica', 'bold');
       this.setTextColor(doc, COLORS.textMuted);
       doc.text('NOTES', 14, cy);
@@ -374,12 +472,16 @@ export class PDFGenerator {
       
       doc.setFont('helvetica', 'normal');
       this.setTextColor(doc, COLORS.text);
-      const lines = doc.splitTextToSize(data.notes, pageWidth - 100);
       doc.text(lines, 14, cy);
-      cy += (lines.length * 4) + 5;
+      y = cy + (lines.length * 4) + 5;
     }
 
     if (data.termsAndConditions) {
+      const lines = doc.splitTextToSize(data.termsAndConditions, pageWidth - 100);
+      const needed = 10 + (lines.length * 4);
+      y = this.checkPageWrap(doc, y, needed);
+      let cy = y + 10;
+      
       doc.setFont('helvetica', 'bold');
       this.setTextColor(doc, COLORS.textMuted);
       doc.text('TERMS & CONDITIONS', 14, cy);
@@ -387,15 +489,36 @@ export class PDFGenerator {
       
       doc.setFont('helvetica', 'normal');
       this.setTextColor(doc, COLORS.text);
-      const lines = doc.splitTextToSize(data.termsAndConditions, pageWidth - 100);
       doc.text(lines, 14, cy);
     }
     
-    // Bottom centered footer
-    doc.setFontSize(7);
-    this.setTextColor(doc, COLORS.textMuted);
-    const footerText = `Computer-generated invoice by ${data.companyDetails?.name || 'Bytesflare Infotech'}.`;
-    doc.text(footerText, pageWidth / 2, pageHeight - 10, { align: 'center' });
+    // Bottom stylized footer on every page.
+    const pageCount = (doc.internal as any).getNumberOfPages();
+    const footerHeight = 16;
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        
+        // Draw dark slate footer rectangle at the bottom
+        doc.setFillColor(30, 41, 59); // slate-800
+        doc.rect(0, pageHeight - footerHeight, pageWidth, footerHeight, 'F');
+        
+        // Left text (italic)
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184); // slate-400
+        const footerLeftText = `This is a computer-generated invoice by ${data.companyDetails?.name || 'Bytesflare Infotech'}.`;
+        doc.text(footerLeftText, 14, pageHeight - (footerHeight / 2) + 2.5);
+
+        // Right text (normal)
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139); // slate-500
+        const generatedDate = data.updatedAt ? this.formatDate(data.updatedAt) : this.formatDate(new Date().toISOString());
+        let footerRightText = `Generated on ${generatedDate}`;
+        if (pageCount > 1) {
+            footerRightText += `  |  Page ${i} of ${pageCount}`;
+        }
+        doc.text(footerRightText, pageWidth - 14, pageHeight - (footerHeight / 2) + 2.5, { align: 'right' });
+    }
   }
 
   // ─── PUBLIC HELPERS ───────────────────────────────────────────────
@@ -438,6 +561,11 @@ export class PDFGenerator {
       }
       
       y = this.addTotals(doc, data, y);
+      
+      if (data.status === 'paid' || data.status === 'partial') {
+        y = this.addPaymentHistory(doc, data, y);
+      }
+      
       this.addFooter(doc, data, y);
     } catch (err) {
       console.error('PDF generation error:', err);
