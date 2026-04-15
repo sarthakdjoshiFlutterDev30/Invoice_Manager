@@ -1,167 +1,100 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Invoice from '@/models/Invoice';
-import '@/models/Client'; // Ensure Client schema is registered for populate
+import '@/models/Client';
+import { requireAuth } from '@/lib/auth';
 
-// GET single invoice
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { user, error } = requireAuth(req.headers);
+  if (error) return NextResponse.json(error, { status: 401 });
+
   try {
     await connectDB();
-
-    // Use default user ID for direct access
-    const defaultUserId = '68f601d13b9fdf3a0dce46a7';
     const { id } = await params;
 
-    const invoice = await Invoice.findOne({
-      _id: id,
-      createdBy: defaultUserId
-    }).populate('client', 'name email address gstin');
-    
-    if (!invoice) {
-      return NextResponse.json(
-        { success: false, message: 'Invoice not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(
-      { success: true, data: invoice },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error fetching invoice:', error);
-    return NextResponse.json(
-      { success: false, message: 'Error fetching invoice' },
-      { status: 500 }
-    );
+    const invoice = await Invoice.findOne({ _id: id, createdBy: user!.id })
+      .populate('client', 'name email address gstin');
+
+    if (!invoice) return NextResponse.json({ success: false, message: 'Invoice not found' }, { status: 404 });
+
+    return NextResponse.json({ success: true, data: invoice });
+  } catch (err) {
+    console.error('Error fetching invoice:', err);
+    return NextResponse.json({ success: false, message: 'Error fetching invoice' }, { status: 500 });
   }
 }
 
-// PATCH update invoice
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { user, error } = requireAuth(req.headers);
+  if (error) return NextResponse.json(error, { status: 401 });
+
   try {
     await connectDB();
-
-    // Use default user ID for direct access
-    const defaultUserId = '68f601d13b9fdf3a0dce46a7';
     const { id } = await params;
-
     const data = await req.json();
 
-    // ── Payment recording: partial or full ─────────────────────
+    // Payment recording
     if (data.status === 'paid' || data.status === 'partial') {
-      const invoiceDoc = await Invoice.findOne({ _id: id, createdBy: defaultUserId });
-      if (!invoiceDoc) {
-        return NextResponse.json({ success: false, message: 'Invoice not found' }, { status: 404 });
-      }
+      const invoiceDoc = await Invoice.findOne({ _id: id, createdBy: user!.id });
+      if (!invoiceDoc) return NextResponse.json({ success: false, message: 'Invoice not found' }, { status: 404 });
 
       const netPayable = invoiceDoc.total - ((invoiceDoc.subtotal || 0) * 0.1);
-      const paymentId  = `PAY-${invoiceDoc.invoiceNumber}-${Date.now().toString().slice(-6)}`;
-      const method     = data.paymentMethod || 'bank_transfer';
-      const referenceNo = data.referenceNo || '';
-      const paidAmount  = typeof data.paidAmount === 'number' ? data.paidAmount : netPayable;
+      const paymentId = `PAY-${invoiceDoc.invoiceNumber}-${Date.now().toString().slice(-6)}`;
+      const paidAmount = typeof data.paidAmount === 'number' ? data.paidAmount : netPayable;
 
-      // Build the FULL history array in JS
-      const previousHistory = invoiceDoc.paymentHistory ? invoiceDoc.paymentHistory.map((p: any) => p.toObject ? p.toObject() : p) : [];
-      const previouslyPaid = previousHistory.reduce(
-        (sum: number, p: any) => sum + (p.amount || 0), 0
-      );
-      const totalPaidAfterThis = previouslyPaid + paidAmount;
-
-      // Determine new status
-      const newStatus = totalPaidAfterThis >= (netPayable - 0.01) ? 'paid' : 'partial';
-      const entryStatus = newStatus === 'paid' ? 'captured' : 'partial';
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const previousHistory = (invoiceDoc.paymentHistory || []).map((p: any) => p.toObject ? p.toObject() : p);
+      const previouslyPaid = previousHistory.reduce((sum: number, p: { amount?: number }) => sum + (p.amount || 0), 0);
+      const totalPaid = previouslyPaid + paidAmount;
+      const newStatus = totalPaid >= (netPayable - 0.01) ? 'paid' : 'partial';
 
       const newEntry = {
         paymentId,
-        method,
-        referenceNo,
+        method: data.paymentMethod || 'bank_transfer',
+        referenceNo: data.referenceNo || '',
         amount: paidAmount,
         currency: 'INR',
-        status: entryStatus,
+        status: newStatus === 'paid' ? 'captured' : 'partial',
         paidAt: new Date(),
       };
 
-      // paymentDetails = latest payment; paymentHistory = all payments
       data.paymentDetails = newEntry;
-      data.status         = newStatus;
+      data.status = newStatus;
       data.paymentHistory = [...previousHistory, newEntry];
-
-      // Remove helper fields
       delete data.paymentMethod;
       delete data.referenceNo;
       delete data.paidAmount;
     }
 
-    const updateOp: any = {
-      $set: { ...data, updatedAt: new Date() },
-    };
-
     const invoice = await Invoice.findOneAndUpdate(
-      { _id: id, createdBy: defaultUserId },
-      updateOp,
+      { _id: id, createdBy: user!.id },
+      { $set: { ...data, updatedAt: new Date() } },
       { new: true }
     ).populate('client', 'name email address gstin');
-    
-    if (!invoice) {
-      return NextResponse.json(
-        { success: false, message: 'Invoice not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(
-      { success: true, data: invoice },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error updating invoice:', error);
-    return NextResponse.json(
-      { success: false, message: 'Error updating invoice' },
-      { status: 500 }
-    );
+
+    if (!invoice) return NextResponse.json({ success: false, message: 'Invoice not found' }, { status: 404 });
+
+    return NextResponse.json({ success: true, data: invoice });
+  } catch (err) {
+    console.error('Error updating invoice:', err);
+    return NextResponse.json({ success: false, message: 'Error updating invoice' }, { status: 500 });
   }
 }
 
-// DELETE invoice
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { user, error } = requireAuth(req.headers);
+  if (error) return NextResponse.json(error, { status: 401 });
+
   try {
     await connectDB();
-
-    // Use default user ID for direct access
-    const defaultUserId = '68f601d13b9fdf3a0dce46a7';
     const { id } = await params;
 
-    const invoice = await Invoice.findOneAndDelete({
-      _id: id,
-      createdBy: defaultUserId
-    });
-    
-    if (!invoice) {
-      return NextResponse.json(
-        { success: false, message: 'Invoice not found' },
-        { status: 404 }
-      );
-    }
-    
-    return NextResponse.json(
-      { success: true, message: 'Invoice deleted successfully' },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error deleting invoice:', error);
-    return NextResponse.json(
-      { success: false, message: 'Error deleting invoice' },
-      { status: 500 }
-    );
+    const invoice = await Invoice.findOneAndDelete({ _id: id, createdBy: user!.id });
+    if (!invoice) return NextResponse.json({ success: false, message: 'Invoice not found' }, { status: 404 });
+
+    return NextResponse.json({ success: true, message: 'Invoice deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting invoice:', err);
+    return NextResponse.json({ success: false, message: 'Error deleting invoice' }, { status: 500 });
   }
 }

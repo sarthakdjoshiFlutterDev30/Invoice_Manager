@@ -2,15 +2,19 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  DollarSign, 
-  FileText, 
-  CheckCircle, 
-  Clock, 
+import {
+  DollarSign,
+  FileText,
+  CheckCircle,
+  Clock,
   TrendingUp,
   Plus,
   Eye,
-  RefreshCw
+  RefreshCw,
+  ArrowUpRight,
+  Zap,
+  Activity,
+  Users,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -24,7 +28,6 @@ interface DashboardStats {
   monthlyRevenue: number;
   growthRate: number;
 }
-
 
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats>({
@@ -48,6 +51,7 @@ export default function Dashboard() {
     issueDate: string;
   }>>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const getNetPayable = (invoice: { total: number; subtotal?: number }) => {
     const tdsAmount = (invoice.subtotal || 0) * 0.1;
@@ -61,12 +65,10 @@ export default function Dashboard() {
     return Math.max(0, net - paid);
   };
 
-  // Fetch dashboard data
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
-  // Auto-refresh when tab gains focus or becomes visible
   useEffect(() => {
     const onFocus = () => fetchDashboardData();
     const onVisibility = () => {
@@ -80,293 +82,311 @@ export default function Dashboard() {
     };
   }, []);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (isRefresh = false) => {
     try {
-      setLoading(true);
-      
-      // Fetch invoices
-      const invoicesResponse = await fetch('/api/invoices', { cache: 'no-store' });
-      const invoicesData = await invoicesResponse.json();
-      
-      // Fetch clients
-      const clientsResponse = await fetch('/api/clients', { cache: 'no-store' });
-      const clientsData = await clientsResponse.json();
-      
-      if (invoicesData.success && clientsData.success) {  
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+
+      const [invoicesRes, clientsRes] = await Promise.all([
+        fetch('/api/invoices', { cache: 'no-store' }),
+        fetch('/api/clients', { cache: 'no-store' }),
+      ]);
+      const invoicesData = await invoicesRes.json();
+      const clientsData = await clientsRes.json();
+
+      if (invoicesData.success && clientsData.success) {
         const invoices = invoicesData.data || [];
         const clients = clientsData.data || [];
-        
-        // Calculate stats
-        const totalRevenue = invoices.reduce((sum: number, invoice: { status: string; total: number; subtotal?: number }) => 
-          invoice.status === 'paid' ? sum + getNetPayable(invoice) : sum, 0
-        );
-        
-        const pendingAmount = invoices.reduce((sum: number, invoice: { status: string; total: number; subtotal?: number; paymentHistory?: { amount?: number }[]; paymentDetails?: { amount?: number } }) => 
-          invoice.status === 'unpaid' || invoice.status === 'partial' ? sum + getPendingAmount(invoice) : sum, 0
-        );
-        
-        const paidInvoices = invoices.filter((invoice: { status: string }) => invoice.status === 'paid').length;
-        const unpaidInvoices = invoices.filter((invoice: { status: string }) => invoice.status === 'unpaid').length;
-        
-        // Calculate monthly revenue (current month) - based on payment date
+
+        const totalRevenue = invoices.reduce((sum: number, inv: { status: string; total: number; subtotal?: number }) =>
+          inv.status === 'paid' ? sum + getNetPayable(inv) : sum, 0);
+
+        const pendingAmount = invoices.reduce((sum: number, inv: { status: string; total: number; subtotal?: number; paymentHistory?: { amount?: number }[]; paymentDetails?: { amount?: number } }) =>
+          inv.status === 'unpaid' || inv.status === 'partial' ? sum + getPendingAmount(inv) : sum, 0);
+
+        const paidInvoices = invoices.filter((inv: { status: string }) => inv.status === 'paid').length;
+        const unpaidInvoices = invoices.filter((inv: { status: string }) => inv.status === 'unpaid').length;
+
         const currentMonth = new Date().getMonth();
         const currentYear = new Date().getFullYear();
         const monthlyRevenue = invoices
-          .filter((invoice: { paymentDetails?: { paidAt: string }; issueDate: string; status: string }) => {
-            // Use payment date if available, otherwise fall back to invoice date
-            const paymentDate = invoice.paymentDetails?.paidAt 
-              ? new Date(invoice.paymentDetails.paidAt)
-              : new Date(invoice.issueDate);
-            
-            return paymentDate.getMonth() === currentMonth && 
-                   paymentDate.getFullYear() === currentYear &&
-                   invoice.status === 'paid';
+          .filter((inv: { paymentDetails?: { paidAt: string }; issueDate: string; status: string }) => {
+            const d = inv.paymentDetails?.paidAt ? new Date(inv.paymentDetails.paidAt) : new Date(inv.issueDate);
+            return d.getMonth() === currentMonth && d.getFullYear() === currentYear && inv.status === 'paid';
           })
-          .reduce((sum: number, invoice: { total: number; subtotal?: number }) => sum + getNetPayable(invoice), 0);
-        
-        // Calculate growth rate (simplified)
+          .reduce((sum: number, inv: { total: number; subtotal?: number }) => sum + getNetPayable(inv), 0);
+
         const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
         const lastMonthRevenue = invoices
-          .filter((invoice: { paymentDetails?: { paidAt: string }; issueDate: string; status: string }) => {
-            // Use payment date if available, otherwise fall back to invoice date
-            const paymentDate = invoice.paymentDetails?.paidAt 
-              ? new Date(invoice.paymentDetails.paidAt)
-              : new Date(invoice.issueDate);
-            
-            return paymentDate.getMonth() === lastMonth && 
-                   paymentDate.getFullYear() === currentYear &&
-                   invoice.status === 'paid';
+          .filter((inv: { paymentDetails?: { paidAt: string }; issueDate: string; status: string }) => {
+            const d = inv.paymentDetails?.paidAt ? new Date(inv.paymentDetails.paidAt) : new Date(inv.issueDate);
+            return d.getMonth() === lastMonth && d.getFullYear() === currentYear && inv.status === 'paid';
           })
-          .reduce((sum: number, invoice: { total: number; subtotal?: number }) => sum + getNetPayable(invoice), 0);
-        
-        const growthRate = lastMonthRevenue > 0 
-          ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 
+          .reduce((sum: number, inv: { total: number; subtotal?: number }) => sum + getNetPayable(inv), 0);
+
+        const growthRate = lastMonthRevenue > 0
+          ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
           : 0;
-        
-    setStats({
-          totalRevenue,
-          totalInvoices: invoices.length,
-          paidInvoices,
-          unpaidInvoices,
-          pendingAmount,
-          totalClients: clients.length,
-          monthlyRevenue,
-          growthRate,
-        });
-        
-        
-        // Get recent invoices
+
+        setStats({ totalRevenue, totalInvoices: invoices.length, paidInvoices, unpaidInvoices, pendingAmount, totalClients: clients.length, monthlyRevenue, growthRate });
+
         const recent = invoices
           .sort((a: { createdAt: string }, b: { createdAt: string }) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 5);
         setRecentInvoices(recent);
       }
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+    } catch {
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
 
   const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      paid: { color: 'bg-green-100 text-green-800', text: 'Paid' },
-      unpaid: { color: 'bg-red-100 text-red-800', text: 'Unpaid' },
-      partial: { color: 'bg-yellow-100 text-yellow-800', text: 'Partial' },
-      cancelled: { color: 'bg-gray-100 text-gray-800', text: 'Cancelled' },
+    const map: Record<string, string> = {
+      paid: 'badge badge-paid',
+      unpaid: 'badge badge-unpaid',
+      partial: 'badge badge-partial',
+      cancelled: 'badge badge-cancelled',
     };
-    
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.unpaid;
-    
+    const labels: Record<string, string> = { paid: 'Paid', unpaid: 'Unpaid', partial: 'Partial', cancelled: 'Cancelled' };
     return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
-        {config.text}
+      <span className={map[status] || map.unpaid}>
+        <span className="w-1.5 h-1.5 rounded-full bg-current inline-block" />
+        {labels[status] || 'Unpaid'}
       </span>
     );
   };
 
+  const statCards = [
+    {
+      label: 'Total Revenue',
+      value: formatCurrency(stats.totalRevenue),
+      sub: `${stats.growthRate >= 0 ? '+' : ''}${stats.growthRate.toFixed(1)}% vs last month`,
+      icon: DollarSign,
+      gradient: 'from-indigo-500 to-violet-600',
+      glow: 'rgba(99,102,241,0.3)',
+      iconBg: 'bg-indigo-500/20',
+      iconColor: 'text-indigo-400',
+      subColor: stats.growthRate >= 0 ? 'text-emerald-400' : 'text-red-400',
+      delay: 'animate-stagger-1',
+    },
+    {
+      label: 'Total Invoices',
+      value: stats.totalInvoices.toString(),
+      sub: `${stats.paidInvoices} paid · ${stats.unpaidInvoices} unpaid`,
+      icon: FileText,
+      gradient: 'from-blue-500 to-cyan-500',
+      glow: 'rgba(59,130,246,0.3)',
+      iconBg: 'bg-blue-500/20',
+      iconColor: 'text-blue-400',
+      subColor: 'text-slate-400',
+      delay: 'animate-stagger-2',
+    },
+    {
+      label: 'Paid Invoices',
+      value: stats.paidInvoices.toString(),
+      sub: `${stats.totalInvoices > 0 ? Math.round((stats.paidInvoices / stats.totalInvoices) * 100) : 0}% collection rate`,
+      icon: CheckCircle,
+      gradient: 'from-emerald-500 to-teal-500',
+      glow: 'rgba(16,185,129,0.3)',
+      iconBg: 'bg-emerald-500/20',
+      iconColor: 'text-emerald-400',
+      subColor: 'text-emerald-400',
+      delay: 'animate-stagger-3',
+    },
+    {
+      label: 'Pending Amount',
+      value: formatCurrency(stats.pendingAmount),
+      sub: `${stats.unpaidInvoices} invoices outstanding`,
+      icon: Clock,
+      gradient: 'from-amber-500 to-orange-500',
+      glow: 'rgba(245,158,11,0.3)',
+      iconBg: 'bg-amber-500/20',
+      iconColor: 'text-amber-400',
+      subColor: 'text-amber-400',
+      delay: 'animate-stagger-4',
+    },
+  ];
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <div className="relative">
+          <div className="w-16 h-16 rounded-full border-2 border-indigo-500/20 border-t-indigo-500 animate-spin" />
+          <div className="absolute inset-2 rounded-full border-2 border-violet-500/20 border-b-violet-500 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '0.8s' }} />
+        </div>
+        <p className="text-slate-500 text-sm animate-pulse">Loading dashboard...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fade-in-up">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 font-poppins">Dashboard</h1>
-          <p className="text-gray-600 mt-1">Welcome back! Here&apos;s what&apos;s happening with your business.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <Activity className="w-4 h-4 text-indigo-400" />
+            <span className="text-xs font-medium text-indigo-400 uppercase tracking-widest">Overview</span>
+          </div>
+          <h1 className="text-3xl font-bold text-slate-100">
+            Dashboard
+          </h1>
+          <p className="text-slate-500 mt-1 text-sm">Welcome back — here&apos;s your business at a glance.</p>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchDashboardData}
-            className="flex items-center space-x-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-            title="Refresh"
+            onClick={() => fetchDashboardData(true)}
+            disabled={refreshing}
+            className="btn-ghost flex items-center gap-2 text-sm"
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             <span>Refresh</span>
           </button>
-          <Link
-            href="/invoices/create"
-            className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Create Invoice</span>
+          <Link href="/invoices/create" className="btn-premium flex items-center gap-2 text-sm">
+            <Plus className="w-4 h-4" />
+            <span>New Invoice</span>
           </Link>
         </div>
       </div>
-      
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Total Revenue */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-blue-600" />
+
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {statCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <div key={card.label} className={`stat-card ${card.delay}`} style={{ '--glow-color': card.glow } as React.CSSProperties}>
+              {/* Top gradient line */}
+              <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${card.gradient} rounded-t-[20px]`} />
+
+              <div className="flex items-start justify-between mb-4">
+                <div className={`icon-box ${card.iconBg}`}>
+                  <Icon className={`w-5 h-5 ${card.iconColor}`} />
+                </div>
+                <ArrowUpRight className="w-4 h-4 text-slate-600" />
+              </div>
+
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{card.label}</p>
+              <p className="text-2xl font-bold text-slate-100 mb-2">{card.value}</p>
+              <div className={`flex items-center gap-1 text-xs font-medium ${card.subColor}`}>
+                <TrendingUp className="w-3 h-3" />
+                <span>{card.sub}</span>
               </div>
             </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.totalRevenue)}</p>
-              <p className="text-sm text-green-600 flex items-center mt-1">
-                <TrendingUp className="w-4 h-4 mr-1" />
-                {stats.growthRate.toFixed(1)}% from last month
-              </p>
-            </div>
+          );
+        })}
+      </div>
+
+      {/* Quick Stats Row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+        <div className="glass-card p-5 flex items-center gap-4">
+          <div className="icon-box bg-violet-500/20">
+            <Users className="w-5 h-5 text-violet-400" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 uppercase tracking-wider">Total Clients</p>
+            <p className="text-xl font-bold text-slate-100">{stats.totalClients}</p>
           </div>
         </div>
-
-        {/* Total Invoices */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center">
-                <FileText className="w-5 h-5 text-indigo-600" />
-              </div>
-            </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Total Invoices</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalInvoices}</p>
-              <p className="text-sm text-gray-500">This month: {stats.monthlyRevenue > 0 ? 'Active' : 'No activity'}</p>
-            </div>
+        <div className="glass-card p-5 flex items-center gap-4">
+          <div className="icon-box bg-cyan-500/20">
+            <Zap className="w-5 h-5 text-cyan-400" />
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 uppercase tracking-wider">This Month Revenue</p>
+            <p className="text-xl font-bold text-slate-100">{formatCurrency(stats.monthlyRevenue)}</p>
           </div>
         </div>
-
-        {/* Paid vs Unpaid */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              </div>
-            </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Paid Invoices</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.paidInvoices}</p>
-              <p className="text-sm text-gray-500">Out of {stats.totalInvoices} total</p>
-            </div>
+        <div className="glass-card p-5 flex items-center gap-4">
+          <div className="icon-box bg-emerald-500/20">
+            <TrendingUp className="w-5 h-5 text-emerald-400" />
           </div>
-        </div>
-
-        {/* Pending Amount */}
-        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-                <Clock className="w-5 h-5 text-red-600" />
-              </div>
-            </div>
-            <div className="ml-4 flex-1">
-              <p className="text-sm font-medium text-gray-600">Pending Amount</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.pendingAmount)}</p>
-              <p className="text-sm text-gray-500">{stats.unpaidInvoices} unpaid invoices</p>
-            </div>
+          <div>
+            <p className="text-xs text-slate-500 uppercase tracking-wider">Growth Rate</p>
+            <p className={`text-xl font-bold ${stats.growthRate >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {stats.growthRate >= 0 ? '+' : ''}{stats.growthRate.toFixed(1)}%
+            </p>
           </div>
         </div>
       </div>
-
-
 
       {/* Recent Invoices */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Invoices</h3>
-            <Link 
-              href="/invoices" 
-              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-            >
-              View all
-          </Link>
-              </div>
+      <div className="glass-card-static overflow-hidden animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
+        <div className="px-6 py-5 flex items-center justify-between border-b border-white/5">
+          <div className="flex items-center gap-3">
+            <div className="icon-box bg-indigo-500/20">
+              <FileText className="w-4 h-4 text-indigo-400" />
             </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-100">Recent Invoices</h3>
+              <p className="text-xs text-slate-500">Last 5 transactions</p>
+            </div>
+          </div>
+          <Link
+            href="/invoices"
+            className="flex items-center gap-1 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors group"
+          >
+            View all
+            <ArrowUpRight className="w-3 h-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+          </Link>
+        </div>
+
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+          <table className="premium-table">
+            <thead>
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Client
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th>Invoice</th>
+                <th>Client</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Action</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {recentInvoices.map((invoice) => (
-                <tr key={invoice._id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {invoice.invoiceNumber}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {invoice.client?.name || 'N/A'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(getNetPayable(invoice))}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {getStatusBadge(invoice.status)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {new Date(invoice.issueDate).toLocaleDateString('en-IN')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    <Link
-                      href={`/invoices/${invoice._id}`}
-                      className="text-blue-600 hover:text-blue-700 flex items-center"
-                    >
-                      <Eye className="w-4 h-4 mr-1" />
-                      View
-          </Link>
+            <tbody>
+              {recentInvoices.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="icon-box bg-slate-800 mx-auto">
+                        <FileText className="w-5 h-5 text-slate-600" />
+                      </div>
+                      <p className="text-slate-500 text-sm">No invoices yet</p>
+                      <Link href="/invoices/create" className="btn-premium text-xs px-4 py-2">
+                        Create your first invoice
+                      </Link>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                recentInvoices.map((invoice) => (
+                  <tr key={invoice._id}>
+                    <td data-label="Invoice">
+                      <span className="font-mono text-indigo-400 font-medium text-xs bg-indigo-500/10 px-2 py-1 rounded-lg">
+                        {invoice.invoiceNumber}
+                      </span>
+                    </td>
+                    <td data-label="Client" className="font-medium text-slate-200">{invoice.client?.name || 'N/A'}</td>
+                    <td data-label="Amount" className="font-semibold text-slate-100">{formatCurrency(getNetPayable(invoice))}</td>
+                    <td data-label="Status">{getStatusBadge(invoice.status)}</td>
+                    <td data-label="Date" className="text-slate-500">{new Date(invoice.issueDate).toLocaleDateString('en-IN')}</td>
+                    <td>
+                      <Link
+                        href={`/invoices/${invoice._id}`}
+                        className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition-colors group"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>View</span>
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

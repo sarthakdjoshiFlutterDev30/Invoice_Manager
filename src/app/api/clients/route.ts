@@ -1,56 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Client from '@/models/Client';
+import { requireAuth } from '@/lib/auth';
 
-// GET all clients
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const { user, error } = requireAuth(req.headers);
+  if (error) return NextResponse.json(error, { status: 401 });
+
   try {
     await connectDB();
-    
-    // Use default user ID for direct access
-    const defaultUserId = '68f601d13b9fdf3a0dce46a7';
-    
-    const clients = await Client.find({ createdBy: defaultUserId }).sort({ name: 1 });
-    
-    return NextResponse.json(
-      { success: true, count: clients.length, data: clients },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error fetching clients:', error);
-    return NextResponse.json(
-      { success: false, message: 'Error fetching clients' },
-      { status: 500 }
-    );
+    const clients = await Client.find({ createdBy: user!.id }).sort({ name: 1 });
+    return NextResponse.json({ success: true, count: clients.length, data: clients });
+  } catch (err) {
+    console.error('Error fetching clients:', err);
+    return NextResponse.json({ success: false, message: 'Error fetching clients' }, { status: 500 });
   }
 }
 
-// POST create new client
 export async function POST(req: NextRequest) {
+  const { user, error } = requireAuth(req.headers);
+  if (error) return NextResponse.json(error, { status: 401 });
+
   try {
     await connectDB();
-    
-    // Use default user ID for direct access
-    const defaultUserId = '68f601d13b9fdf3a0dce46a7';
-    
     const data = await req.json();
-    console.log('Client data:', data);
-    
-    // Add default user ID to created by
-    data.createdBy = defaultUserId;
-    
+    data.createdBy = user!.id;
     const client = await Client.create(data);
-    console.log('Client created:', client);
-    
-    return NextResponse.json(
-      { success: true, data: client },
-      { status: 201 }
-    );
-  } catch (error) {
-    console.error('Error creating client:', error);
-    return NextResponse.json(
-      { success: false, message: 'Error creating client' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, data: client }, { status: 201 });
+  } catch (err) {
+    console.error('Error creating client:', err);
+    return NextResponse.json({ success: false, message: 'Error creating client' }, { status: 500 });
   }
 }

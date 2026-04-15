@@ -42,7 +42,7 @@ export const removeAuthCookie = async () => {
 export const getCurrentUser = async () => {
   const token = await getAuthToken();
   if (!token) return null;
-  
+
   const decoded = verifyToken(token);
   return decoded;
 };
@@ -52,31 +52,25 @@ export const getCurrentUserFromHeaders = (headers: Headers) => {
   const userEmail = headers.get('x-user-email');
   const userRole = headers.get('x-user-role');
 
-  console.log('Headers in getCurrentUserFromHeaders:', {
-    'x-user-id': userId,
-    'x-user-email': userEmail,
-    'x-user-role': userRole
-  });
+  if (!userId || !userEmail || !userRole) return null;
 
-  if (!userId || !userEmail || !userRole) {
-    console.log('Missing user headers');
-    return null;
-  }
+  return { id: userId, email: userEmail, role: userRole };
+};
 
-  return {
-    id: userId,
-    email: userEmail,
-    role: userRole,
-  };
+/** Convenience: returns 401 JSON response if user not in headers */
+export const requireAuth = (headers: Headers) => {
+  const user = getCurrentUserFromHeaders(headers);
+  if (!user) return { user: null, error: { success: false, message: 'Unauthorized' } };
+  return { user, error: null };
 };
 
 export const isAuthenticated = async (req: NextRequest) => {
   const token = req.cookies.get('auth_token')?.value;
-  
+
   if (!token) {
     return false;
   }
-  
+
   const decoded = verifyToken(token);
   return !!decoded;
 };
@@ -84,18 +78,18 @@ export const isAuthenticated = async (req: NextRequest) => {
 export const authMiddleware = async (req: NextRequest) => {
   const isAuthPath = req.nextUrl.pathname.startsWith('/api/auth');
   const isPublicPath = req.nextUrl.pathname === '/login' || req.nextUrl.pathname === '/register';
-  
+
   const isAuthed = await isAuthenticated(req);
-  
+
   if (!isAuthed && !isPublicPath && !isAuthPath) {
     const url = new URL('/login', req.url);
     url.searchParams.set('callbackUrl', req.nextUrl.pathname);
     return NextResponse.redirect(url);
   }
-  
+
   if (isAuthed && isPublicPath) {
     return NextResponse.redirect(new URL('/dashboard', req.url));
   }
-  
+
   return NextResponse.next();
 };
